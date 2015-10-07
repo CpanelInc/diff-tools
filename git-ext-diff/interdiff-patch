@@ -1,0 +1,35 @@
+#!/bin/bash
+
+OPTS=
+COLOR=1
+function get_options() {
+    while [ -n "$1" ]; do
+        [ "$1" = "-w" ] && OPTS="$OPTS $1"
+        [ "$1" = "-b" ] && OPTS="$OPTS $1"
+        [ "$1" = "--ignore-all-space" ] && OPTS="$OPTS $1"
+        [ "$1" = "--ignore-space-change" ] && OPTS="$OPTS $1"
+        [ "$1" = "--ignore-blank-lines" ] && OPTS="$OPTS $1"
+
+        [ "$1" = "--color=always" ] && COLOR=1
+        [ "$1" = "--color=never" ] && COLOR=0
+        [ "$1" = "--no-color" ] && COLOR=0
+
+        shift
+    done
+}
+
+# Extract any recogized options from our parent and use them ourselves.
+get_options $(ps -o args= $PPID)
+
+CLEAR="\e[m"
+HIGHLIGHT=
+[ "$COLOR" = "1" ] && HIGHLIGHT="\e[1m"
+
+# Print git-diff like header.
+echo -e "${HIGHLIGHT}interdiff$OPTS a/$1 b/$1$CLEAR"
+echo -e "${HIGHLIGHT}index ${3}..$6$CLEAR"
+if [ "$4" != "$7" ]; then
+    echo -e "${HIGHLIGHT}old mode $4$CLEAR"
+    echo -e "${HIGHLIGHT}new mode $7$CLEAR"
+fi
+interdiff $OPTS "$2" "$5"
