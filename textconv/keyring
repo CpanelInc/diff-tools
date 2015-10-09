@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Since no-show-keyring doesn't remove the keyring header lines, use tail.
+gpg --fingerprint \
+    --list-options show-policy-urls,show-notations,show-keyserver-urls,show-uid-validity,show-unusable-uids,show-unusable-subkeys,show-keyring,show-sig-expire,show-sig-subpackets \
+    --no-default-keyring \
+    --keyring $1 \
+    | tail -n +3
