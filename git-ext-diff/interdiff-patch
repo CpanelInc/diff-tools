@@ -27,8 +27,14 @@ HIGHLIGHT=
 
 # Print git-diff like header.
 echo -e "${HIGHLIGHT}interdiff$OPTS a/$1 b/$1$CLEAR"
-echo -e "${HIGHLIGHT}index ${3}..$6$CLEAR"
-if [ "$4" != "$7" ]; then
+I1=${3/#./0000000000000000000000000000000000000000}
+I2=${6/#./0000000000000000000000000000000000000000}
+echo -e "${HIGHLIGHT}index ${I1}..$I2$CLEAR"
+if [ "$4" = "." ]; then
+    echo -e "${HIGHLIGHT}new file mode $7${CLEAR}"
+elif [ "$7" = "." ]; then
+    echo -e "${HIGHLIGHT}deleted file mode $4${CLEAR}"
+elif [ "$4" != "$7" ]; then
     echo -e "${HIGHLIGHT}old mode $4$CLEAR"
     echo -e "${HIGHLIGHT}new mode $7$CLEAR"
 fi
