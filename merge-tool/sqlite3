@@ -1,0 +1,17 @@
+#!/bin/sh
+
+BASE=$1
+REMOTE=$2
+LOCAL=$3
+MERGED=$4
+
+trap "rm -f '$BASE.dump' '$REMOTE.dump' '$LOCAL.dump' '$MERGED.dump'" EXIT
+
+sqlite3 "$BASE" .dump > "$BASE.dump"
+sqlite3 "$REMOTE" .dump > "$REMOTE.dump"
+sqlite3 "$LOCAL" .dump > "$LOCAL.dump"
+
+kdiff3 --auto "$BASE.dump" "$REMOTE.dump" "$LOCAL.dump" -o "$MERGED.dump"
+
+rm -f "$MERGED"
+sqlite3 "$MERGED" ".read '$MERGED.dump'"
