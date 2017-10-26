@@ -1,0 +1,260 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+
+use strict;
+use warnings;
+
+use DateTime     ();
+use Fcntl        ();
+use Getopt::Long ();
+
+exit _main(@ARGV) unless caller;
+
+sub alert { print STDERR "alert: ", @_, "\n" }
+sub fatal { print STDERR "fatal: ", @_, "\n"; exit 255 }
+
+sub _main {
+    my @args = @_;
+
+    my $processExtended = 1;
+    Getopt::Long::GetOptionsFromArray(
+        \@args,
+        'process-extended!' => \$processExtended,
+    );
+
+    my ($filename) = @_;
+
+    my $in;
+    if ( $filename eq '-' ) {
+        $in = \*STDIN;
+    }
+    else {
+        sysopen $in, $filename, Fcntl::O_RDONLY or fatal "Cannot open file '$filename': $!";
+    }
+
+    _process_tarball( $in, $processExtended );
+
+    close $in;
+
+    return 0;
+}
+
+sub _process_tarball {
+    my ( $in, $processExtended ) = @_;
+
+    my $pos = 0;
+    my $foundEnd;
+    my $bytesRemaining;
+    my %extended_attributes;
+    my $in_header     = '';
+    my $header_buffer = '';
+    while ( my $length = sysread( $in, my $buffer, 512 ) ) {
+        fatal "I/O Error: $!" if $length == -1;
+
+        if ($foundEnd) {
+            fatal "Bad block size: $length" if $length != 512;
+            fatal "Block has unexpected data: $buffer" if $buffer ne "\0" x 512;
+        }
+        elsif ( !$bytesRemaining ) {
+            my %header = eval { lex_tar_header($buffer) };
+            fatal "Expected header at $pos: $@" if $@;
+            if ( !%header ) {
+                $foundEnd = 1;
+                next;
+            }
+            $bytesRemaining = $header{size};
+
+            $in_header = $header{type} if $processExtended;
+            next if $in_header eq "x" || $in_header eq "L" || $in_header eq "K";
+
+            my $str = make_header( { %header, %extended_attributes } );
+            syswrite( STDOUT, "\n$str" ) or fatal "Cannot write to terminal $!";
+            %extended_attributes = ();
+        }
+        else {
+            my $len = $bytesRemaining < $length ? $bytesRemaining : $length;
+            $bytesRemaining -= $len;
+
+            if ( $in_header eq "L" ) {
+                $extended_attributes{name_prefix} = '';
+                $extended_attributes{name} //= '';
+                $extended_attributes{name} .= $buffer =~ s/\0+$//r;
+            }
+            elsif ( $in_header eq "K" ) {
+                $extended_attributes{linkpath} //= '';
+                $extended_attributes{linkpath} .= $buffer =~ s/\0+$//r;
+            }
+            elsif ( $in_header eq "x" ) {
+                $header_buffer .= substr $buffer, 0, $len;
+                while ( length $header_buffer ) {
+                    last if $header_buffer !~ m/^(\d+) /a;
+                    my $bytes = $1;
+                    last if $bytes > length $header_buffer;
+
+                    my $str = substr $header_buffer, 0, $bytes, '';
+                    chop $str;    # Remove newline
+                    $str =~ s/^\d+ //a;
+
+                    my ( $key, $value ) = split m/=/, $str, 2;
+                    $key = "name" if $key eq "path";
+                    $extended_attributes{$key} = $value;
+                }
+            }
+            else {
+                alert "Expected data at $pos" if substr( $buffer, 257, 6 ) eq "ustar\0";
+                syswrite( STDOUT, $buffer, $len ) or fatal "Cannot write to terminal: $!";
+            }
+        }
+
+        $pos += $length;
+    }
+    return;
+}
+
+sub lex_tar_header_raw {
+    my ($header) = @_;
+
+    die "Incorrect header length" if 512 != length $header;
+    return if $header eq "\0" x 512;    # An empty header suggests the end of file was reached
+
+    # TODO: Validate checksum?
+    return (
+        name     => substr( $header, 0,   100 ) =~ s/\0+$//r,
+        mode     => substr( $header, 100, 8 ) =~ s/\0+$//r,
+        uid      => substr( $header, 108, 8 ) =~ s/\0+$//r,
+        gid      => substr( $header, 116, 8 ) =~ s/\0+$//r,
+        size     => substr( $header, 124, 12 ) =~ s/\0+$//r,
+        mtime    => substr( $header, 136, 12 ) =~ s/\0+$//r,
+        checksum => substr( $header, 148, 8 ) =~ s/\0+$//r,
+        type     => substr( $header, 156, 1 ) =~ s/\0+$//r,
+        linkpath => substr( $header, 157, 100 ) =~ s/\0+$//r,
+
+        # Extended
+        ustar         => substr( $header, 257, 6 ) =~ s/\0+$//r,
+        ustar_version => substr( $header, 263, 2 ) =~ s/\0+$//r,
+        user          => substr( $header, 265, 32 ) =~ s/\0+$//r,
+        group         => substr( $header, 297, 32 ) =~ s/\0+$//r,
+        device_major  => substr( $header, 329, 8 ) =~ s/\0+$//r,
+        device_minor  => substr( $header, 337, 8 ) =~ s/\0+$//r,
+        name_prefix   => substr( $header, 345, 155 ) =~ s/\0+$//r,
+    );
+}
+
+sub lex_tar_header {
+    my ($header) = @_;
+
+    my %out = lex_tar_header_raw($header);
+    return if !%out;
+
+    if ( length( my $prefix = delete $out{name_prefix} ) ) {
+        $out{name} = "$prefix/$out{name}";
+    }
+
+    $out{type} ||= '0';    # Empty string (i.e. \0) is a normal file
+    $out{size} = parse_size( $out{size} );
+    foreach (qw(mode uid gid mtime device_major device_minor)) {
+        $out{$_} = oct $out{$_} if defined $out{$_};
+    }
+
+    return %out;
+}
+
+sub convert_tar_type_to_ls_type {
+    my ($type) = @_;
+
+    return "-" if $type eq "0" || $type eq "1";
+    return "l" if $type eq "2";
+    return "c" if $type eq "3";
+    return "b" if $type eq "4";
+    return "d" if $type eq "5";
+    return "p" if $type eq "6";
+
+    return;
+}
+
+sub stringify_tar_type {
+    my ($tar_type) = @_;
+
+    return "Normal file"       if $tar_type eq "0";
+    return "Hard link"         if $tar_type eq "1";
+    return "Symbolic link"     if $tar_type eq "2";
+    return "Character special" if $tar_type eq "3";
+    return "Block special"     if $tar_type eq "4";
+    return "Directory"         if $tar_type eq "5";
+    return "FIFO"              if $tar_type eq "6";
+    return "Contiguous"        if $tar_type eq "7";
+    return "Global Extended"   if $tar_type eq "g";
+    return "Extended"          if $tar_type eq "x";
+
+    return;
+}
+
+sub make_header {
+    my ($header) = @_;
+
+    my $mode_str = convert_tar_type_to_ls_type( $header->{type} ) // '?';
+    $mode_str .= mode_string( $header->{mode} );
+
+    my $out = '';
+
+    $out .= sprintf "\e[1m  File: ‘%s’", $header->{name};
+    $out .= sprintf " -> ‘%s’", $header->{linkpath} if $header->{linkpath};
+    $out .= "\e[m\n";
+
+    my $add = sub { my $str = shift; $out .= sprintf "\e[1m$str\e[m\n", @_; return };
+    $add->( "  Size: %-10d   Blocks: %-10d  %s", $header->{size}, get_number_of_blocks( $header->{size} ), stringify_tar_type( $header->{type} ) // "Unknown($header->{type})" );
+    $add->( "Device type: %x,%x", $header->{device_major}, $header->{device_minor} ) if $header->{type} eq "3" || $header->{type} eq "4";
+    $add->( "Access: (%04o/%10s)  Uid: (%5d/%8s)   Gid: (%5d/%8s)", $header->{mode}, $mode_str, $header->{uid}, $header->{user} // '', $header->{gid}, $header->{group} // '' );
+    $add->( "Access: %s", format_time( $header->{atime} ) ) if $header->{atime};
+    $add->( "Modify: %s", format_time( $header->{mtime} ) ) if $header->{mtime};
+    $add->( "Change: %s", format_time( $header->{ctime} ) ) if $header->{ctime};
+    $add->("Content: ↓ (shown below)") if $header->{size};
+
+    return $out;
+}
+
+sub format_time {
+    my ($time) = @_;
+    return DateTime->from_epoch( epoch => $time, time_zone => 'local' )->strftime('%Y-%m-%d %H:%M:%S.%6N %z');
+}
+
+sub get_number_of_blocks {
+    my ($size) = @_;
+    my $blocks = int( $size / 512 );
+    ++$blocks if $size % 512;
+    return $blocks;
+}
+
+sub mode_string {
+    my ($mode) = @_;
+
+    my $out = '';
+    $out .= $mode & 0400 ? 'r' : '-';
+    $out .= $mode & 0200 ? 'w' : '-';
+    $out .= $mode & 0100 ? 'x' : '-';
+    $out .= $mode & 0040 ? 'r' : '-';
+    $out .= $mode & 0020 ? 'w' : '-';
+    $out .= $mode & 0010 ? 'x' : '-';
+    $out .= $mode & 0004 ? 'r' : '-';
+    $out .= $mode & 0002 ? 'w' : '-';
+    $out .= $mode & 0001 ? 'x' : '-';
+
+    return $out;
+}
+
+sub parse_size {
+    my ($size) = @_;
+
+    my $real_size = 0;
+    if ( ord( substr( $size, 0, 1 ) ) >= 128 ) {    # If MSB is true
+        my @chars = split m//, $size;
+        foreach (@chars) {
+            $real_size *= 256;
+            $real_size += ord($_);
+        }
+    }
+    else {
+        $real_size = oct $size;
+    }
+
+    return $real_size;
+}
