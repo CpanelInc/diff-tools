@@ -1,0 +1,185 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+
+use strict;
+use warnings;
+
+use Archive::Tar ();
+use File::Temp   ();
+use Git          ();
+
+my $SHOW_TAR = 1;
+
+exit _main(@ARGV) unless caller;
+
+sub _main {
+    my ( $old_git_path, $old_file, $old_hex, $old_mode, $new_file, $new_hex, $new_mode, $new_git_path, $git_annotations ) = @_;
+    $new_git_path //= $old_git_path;
+
+    my $dir = File::Temp->newdir('git-ext-diff-tarball-XXXXXX');
+    system "cd '$dir'; git init -q --bare";
+    my $git = Git->repository( Repository => $dir->dirname );
+
+    # TODO: Figure out how to set *all* relevant config values so they persist.
+    # Ideally, we would point to the parent's config, but we may have to settle
+    # for copying.
+    my $limit = qx{git config --int --get diff.renameLimit};
+    chomp $limit;
+    $git->command( 'config', 'diff.renameLimit', $limit || 10000 );
+
+    my $old_tree = _extract_files( $git, $old_file, $old_git_path );
+    my $new_tree = _extract_files( $git, $new_file, $new_git_path );
+
+    my @options = get_options();
+    if ($SHOW_TAR) {
+        my $src_prefix = ( map { m/^--src-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "a/";
+        my $dst_prefix = ( map { m/^--dst-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "b/";
+
+        # If the last color-related option isn't disabling color, then print in color.
+        my $no_color;
+        if ( my $last_color_option = ( grep { m/^--(?:no-)?color/ } @options )[-1] ) {
+            $no_color = $last_color_option =~ m/--no-color|--color=never/;
+        }
+        my $header_color = $no_color ? '' : "\e[1m";
+
+        # TODO: Handle -R switching src-prefix & dst-prefix.
+        print_header( "diff --git $src_prefix$old_git_path $dst_prefix$new_git_path", $header_color );
+        print_header( $git_annotations, $header_color ) if $git_annotations;
+        print "Tarballs $src_prefix$old_git_path and $dst_prefix$new_git_path differ\n";
+    }
+    $git->command_noisy( 'diff', $old_tree, $new_tree, @options );
+
+    return 0;
+}
+
+sub print_header {
+    my ( $data, $color ) = @_;
+
+    foreach ( split m/\n/, $data ) {
+        print $color if $color;
+        print $_;
+        print "\e[m" if $color;
+        print "\n";
+    }
+
+    return;
+}
+
+sub _extract_files {
+    my ( $git_repo, $tar_file, $git_path ) = @_;
+
+    # Ensure clean index
+    $git_repo->command( 'read-tree', '--empty' );
+
+    # Add files to index
+    my $iter = Archive::Tar->iter($tar_file);
+    while ( my $f = $iter->() ) {
+        _handle_file( $git_repo, $f, $git_path );
+    }
+
+    # Create root tree (for commit)
+    my $tree = $git_repo->command_oneline('write-tree');
+    chomp $tree;
+    return $tree;
+}
+
+sub _handle_file {
+    my ( $git_repo, $file, $git_path ) = @_;
+
+    my $mode;
+    if ( $file->type eq '0' ) {
+        $mode = $file->mode & 0100 ? 100755 : 100644;
+    }
+    elsif ( $file->type eq '2' ) {
+        $mode = '120000';
+    }
+    elsif ( $file->type eq '5' ) {
+        return;
+    }
+    else {
+        die "Unrecognized type: " . $file->type;
+    }
+
+    my ( $pid, $in, $out, $ctx ) = $git_repo->command_bidi_pipe( 'hash-object', '-w', '--stdin' );
+    if ( $mode eq "120000" ) {
+        print {$out} $file->linkname;
+    }
+    else {
+        print {$out} $file->get_content;
+    }
+    close $out;
+    my $hash = <$in>;
+    chomp $hash;
+    $git_repo->command_close_bidi_pipe( $pid, $in, undef, $ctx );
+
+    my $full_path = $git_path . '/' . $file->full_path;
+    $git_repo->command( 'update-index', '--add', '--cacheinfo', "$mode,$hash,$full_path" );
+
+    return;
+}
+
+sub get_options {
+    my $recognized = qr/
+          -U.+
+        | --unified=.+
+
+        | --minimal
+        | --patience
+        | --histogram
+        | --diff-algorithm=.*
+
+        | --color(?:=.+)?
+        | --no-color
+        | --word-diff(?:=.+)?
+        | --word-diff-regex=.+
+        | --color-words(?:=.+)?
+
+        | --check
+        | --ws-error-highlight=.+
+
+        | --full-index
+        | --binary
+        | --abbrev(?:=.+)?
+
+        | --no-renames
+        | -B.*
+        | --break-rewrites(?:=.+)?
+        | -M.*
+        | --find-renames(?:=.+)?
+        | -C.*
+        | --find-copies(?:=.+)?
+        | --find-copies-harder
+        | -D
+        | --irreversible-delete
+        | -l.+
+
+        | -a
+        | --text
+        | --ignore-space-at-eol
+        | -b
+        | --ignore-space-change
+        | -w
+        | --ignore-all-space
+        | --ignore-blank-lines
+
+        | --inter-hunk-context=.+
+        | -W
+        | --function-context
+
+        | --textconv
+        | --no-textconv
+
+        | --src-prefix=.*
+        | --dst-prefix=.*
+        | --no-prefix
+    /xs;
+
+    my $PPID = getppid();
+    my $file = "/proc/$PPID/cmdline";
+
+    local $/;
+    open my $fh, '<', $file or die "Cannot open “$file”: $!";
+    my @args = split m/\0/, <$fh>;
+    close $fh or warn "Cannot close “$file”: $!";
+
+    return grep { m/^(?:$recognized)$/ } @args;
+}
