@@ -24,9 +24,18 @@ get_options $(ps -o args= $PPID)
 
 CLEAR=
 META=
+FILTER=()
 if [ "$COLOR" = "1" ]; then
     CLEAR="$(git config --get-color '' reset)"
     META="$(git config --get-color color.diff.meta bold)"
+    FILTER=(
+        -e "s/\$/$CLEAR/"
+        -e "/^--- \\|^+++ \\|^diff -u/s/^/$META/"
+        -e "s/^-/$(git config --get-color color.diff.old red)-/"
+        -e "s/^+/$(git config --get-color color.diff.new green)+/"
+        -e "s/^ /$(git config --get-color color.diff.context normal) /"
+        -e "/^@@/ { s/^/$(git config --get-color color.diff.frac cyan)/; s/ @@/ @@$CLEAR$(git config --get-color color.diff.func normal)/ }"
+    )
 fi
 
 # Print git-diff like header.
@@ -49,4 +58,4 @@ fi
 
     # Handle the differences between the actual patch contents.
     interdiff $OPTS "$2" "$5"
-} | sed -e "/^--- \\|^+++ \\|^diff -u/s/\$/\t(interdiff)/"
+} | sed -e "/^--- \\|^+++ \\|^diff -u/s/\$/$CLEAR\t(interdiff)/" "${FILTER[@]}"
