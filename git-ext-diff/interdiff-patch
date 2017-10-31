@@ -39,8 +39,10 @@ elif [ "$4" != "$7" ]; then
     echo -e "${HIGHLIGHT}new mode $7$CLEAR"
 fi
 
-# Handle the differences in the commit (message, author, date).
-diff $OPTS -u -I '^From [0-9a-f]* Mon Sep 17 00:00:00 2001$' <(sed -e '/^---$/q' "$2") <(sed -e '/^---$/q' "$5") --label commit --label commit
+{
+    # Handle the differences in the commit (message, author, date).
+    diff $OPTS -u -I '^From [0-9a-f]* Mon Sep 17 00:00:00 2001$' <(sed -e '/^---$/q' "$2") <(sed -e '/^---$/q' "$5") --label commit --label commit
 
-# Handle the differences between the actual patch contents.
-interdiff $OPTS "$2" "$5"
+    # Handle the differences between the actual patch contents.
+    interdiff $OPTS "$2" "$5"
+} | sed -e "/^--- \\|^+++ \\|^diff -u/s/\$/\t(interdiff)/"
