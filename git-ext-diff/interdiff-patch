@@ -1,7 +1,7 @@
 #!/bin/bash
 
 OPTS=
-COLOR=1
+COLOR=$(git config --get-colorbool color.diff && echo 1 || echo 0)
 function get_options() {
     while [ -n "$1" ]; do
         [ "$1" = "-w" ] && OPTS="$OPTS $1"
@@ -11,6 +11,7 @@ function get_options() {
         [ "$1" = "--ignore-blank-lines" ] && OPTS="$OPTS $1"
 
         [ "$1" = "--color=always" ] && COLOR=1
+        [ "$1" = "--color=auto" ] && COLOR=$(git config --get-colorbool '' && echo 1 || echo 0)
         [ "$1" = "--color=never" ] && COLOR=0
         [ "$1" = "--no-color" ] && COLOR=0
 
@@ -21,22 +22,25 @@ function get_options() {
 # Extract any recogized options from our parent and use them ourselves.
 get_options $(ps -o args= $PPID)
 
-CLEAR="\e[m"
-HIGHLIGHT=
-[ "$COLOR" = "1" ] && HIGHLIGHT="\e[1m"
+CLEAR=
+META=
+if [ "$COLOR" = "1" ]; then
+    CLEAR="$(git config --get-color '' reset)"
+    META="$(git config --get-color color.diff.meta bold)"
+fi
 
 # Print git-diff like header.
-echo -e "${HIGHLIGHT}interdiff$OPTS a/$1 b/$1$CLEAR"
+echo -e "${META}interdiff$OPTS a/$1 b/$1$CLEAR"
 I1=${3/#./0000000000000000000000000000000000000000}
 I2=${6/#./0000000000000000000000000000000000000000}
-echo -e "${HIGHLIGHT}index ${I1}..$I2$CLEAR"
+echo -e "${META}index ${I1}..$I2$CLEAR"
 if [ "$4" = "." ]; then
-    echo -e "${HIGHLIGHT}new file mode $7${CLEAR}"
+    echo -e "${META}new file mode $7${CLEAR}"
 elif [ "$7" = "." ]; then
-    echo -e "${HIGHLIGHT}deleted file mode $4${CLEAR}"
+    echo -e "${META}deleted file mode $4${CLEAR}"
 elif [ "$4" != "$7" ]; then
-    echo -e "${HIGHLIGHT}old mode $4$CLEAR"
-    echo -e "${HIGHLIGHT}new mode $7$CLEAR"
+    echo -e "${META}old mode $4$CLEAR"
+    echo -e "${META}new mode $7$CLEAR"
 fi
 
 {
