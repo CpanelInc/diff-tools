@@ -27,7 +27,6 @@ In one of these files, add a line with a fileglob to match and the diff driver t
 <file*.glob>    diff=<driver>
 *.tar           diff=tarball
 *.patch         diff=patchfile
-*.sqlite        diff=sqlite3
 ```
 
 To tell Git how to run the tool/driver, see the appropriate section below:
@@ -62,7 +61,7 @@ When setup, `git diff` uses the external diff by default, while `git show` and `
 
 The merge-tool directory contains scripts that make it possible to merge binary files, which are otherwise unmergeable in Git, requiring manual review and modification.  Often, this is accomplished by converting the binary contents to text with a 1-to-1 mapping, so the text can be merged and then re-converted to binary.
 
-To make a merge-tool driver, set the `diff.<driver>.command` configuration value, where `<driver>` is the driver in the gitattributes file:
+To add a merge-tool, set the `mergetool.<tool>.cmd` configuration value, where `<tool>` is a name for the tool:
 
 ```sh
 git config mergetool.sqlite3.cmd '/path/to/merge-tool/sqlite3 $BASE $REMOTE $LOCAL $MERGED'
@@ -70,4 +69,4 @@ git config mergetool.sqlite3.cmd '/path/to/merge-tool/sqlite3 $BASE $REMOTE $LOC
 
 **Note:** Unlike the other tools, the argument list must be specified with merge-tools.
 
-To use this merge tool, run `git mergetool [<file>]`.
+To use this merge tool, run `git mergetool --tool=<tool> [<file>]`.  Notice the explit inclusion of the tool to use; this is required.
