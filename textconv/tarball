@@ -230,13 +230,22 @@ sub mode_string {
     my $out = '';
     $out .= $mode & 0400 ? 'r' : '-';
     $out .= $mode & 0200 ? 'w' : '-';
-    $out .= $mode & 0100 ? 'x' : '-';
+    $out .=
+      $mode & 04000
+      ? ( $mode & 0100 ? 's' : 'S' )
+      : ( $mode & 0100 ? 'x' : '-' );
     $out .= $mode & 0040 ? 'r' : '-';
     $out .= $mode & 0020 ? 'w' : '-';
-    $out .= $mode & 0010 ? 'x' : '-';
+    $out .=
+      $mode & 02000
+      ? ( $mode & 0010 ? 's' : 'S' )
+      : ( $mode & 0010 ? 'x' : '-' );
     $out .= $mode & 0004 ? 'r' : '-';
     $out .= $mode & 0002 ? 'w' : '-';
-    $out .= $mode & 0001 ? 'x' : '-';
+    $out .=
+      $mode & 01000
+      ? ( $mode & 0001 ? 't' : 'T' )
+      : ( $mode & 0001 ? 'x' : '-' );
 
     return $out;
 }
