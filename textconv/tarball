@@ -15,10 +15,14 @@ sub fatal { print STDERR "fatal: ", @_, "\n"; exit 255 }
 sub _main {
     my @args = @_;
 
-    my $processExtended = 1;
+    my %opts = (
+        process_extended => 1,
+        show_content     => 1,
+    );
     Getopt::Long::GetOptionsFromArray(
         \@args,
-        'process-extended!' => \$processExtended,
+        'content!'          => \$opts{show_content},
+        'process-extended!' => \$opts{process_extended},
     );
 
     my ($filename) = @args;
@@ -31,7 +35,7 @@ sub _main {
         sysopen $in, $filename, Fcntl::O_RDONLY or fatal "Cannot open file '$filename': $!";
     }
 
-    _process_tarball( $in, $processExtended );
+    _process_tarball( $in, %opts );
 
     close $in;
 
@@ -39,7 +43,7 @@ sub _main {
 }
 
 sub _process_tarball {
-    my ( $in, $processExtended ) = @_;
+    my ( $in, %opts ) = @_;
 
     my $pos = 0;
     my $foundEnd;
@@ -63,10 +67,10 @@ sub _process_tarball {
             }
             $bytesRemaining = $header{size};
 
-            $in_header = $header{type} if $processExtended;
+            $in_header = $header{type} if $opts{process_extended};
             next if $in_header eq "x" || $in_header eq "L" || $in_header eq "K";
 
-            my $str = make_header( { %header, %extended_attributes } );
+            my $str = make_header( { %header, %extended_attributes }, \%opts );
             syswrite( STDOUT, "\n$str" ) or fatal "Cannot write to terminal $!";
             %extended_attributes = ();
         }
@@ -101,7 +105,9 @@ sub _process_tarball {
             }
             else {
                 alert "Expected data at $pos" if substr( $buffer, 257, 6 ) eq "ustar\0";
-                syswrite( STDOUT, $buffer, $len ) or fatal "Cannot write to terminal: $!";
+                if ( $opts{show_content} ) {
+                    syswrite( STDOUT, $buffer, $len ) or fatal "Cannot write to terminal: $!";
+                }
             }
         }
 
@@ -189,7 +195,7 @@ sub stringify_tar_type {
 }
 
 sub make_header {
-    my ($header) = @_;
+    my ( $header, $opts ) = @_;
 
     my $mode_str = convert_tar_type_to_ls_type( $header->{type} ) // '?';
     $mode_str .= mode_string( $header->{mode} );
@@ -207,7 +213,14 @@ sub make_header {
     $add->( "Access: %s", format_time( $header->{atime} ) ) if $header->{atime};
     $add->( "Modify: %s", format_time( $header->{mtime} ) ) if $header->{mtime};
     $add->( "Change: %s", format_time( $header->{ctime} ) ) if $header->{ctime};
-    $add->("Content: ↓ (shown below)") if $header->{size};
+    if ( $header->{size} ) {
+        if ( $opts->{show_content} ) {
+            $add->("Content: ↓ (shown below)");
+        }
+        else {
+            $add->("Content Skipped");
+        }
+    }
 
     return $out;
 }
