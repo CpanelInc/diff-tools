@@ -23,6 +23,7 @@ sub _main {
         \@args,
         'content!'          => \$opts{show_content},
         'process-extended!' => \$opts{process_extended},
+        'raw-header!'       => \$opts{raw_header},
     );
 
     my ($filename) = @args;
@@ -70,7 +71,14 @@ sub _process_tarball {
             $in_header = $header{type} if $opts{process_extended};
             next if $in_header eq "x" || $in_header eq "L" || $in_header eq "K";
 
-            my $str = make_header( { %header, %extended_attributes }, \%opts );
+            my $str;
+            if ( $opts{raw_header} ) {
+                %header = lex_tar_header_raw($buffer);
+                $str = make_raw_header( \%header, \%extended_attributes, \%opts );
+            }
+            else {
+                $str = make_header( { %header, %extended_attributes }, \%opts );
+            }
             syswrite( STDOUT, "\n$str" ) or fatal "Cannot write to terminal $!";
             %extended_attributes = ();
         }
@@ -214,6 +222,46 @@ sub make_header {
     $add->( "Modify: %s", format_time( $header->{mtime} ) ) if $header->{mtime};
     $add->( "Change: %s", format_time( $header->{ctime} ) ) if $header->{ctime};
     if ( $header->{size} ) {
+        if ( $opts->{show_content} ) {
+            $add->("Content: ↓ (shown below)");
+        }
+        else {
+            $add->("Content Skipped");
+        }
+    }
+
+    return $out;
+}
+
+sub make_raw_header {
+    my ( $header, $extended, $opts ) = @_;
+
+    $header->{prefix} //= '';
+    my $out = '';
+    my $add = sub { my $str = shift; $out .= sprintf "\e[1m$str\e[m\n", @_; return };
+
+    $add->( "Name:    '%s' (%d/100)",   $header->{name},  length $header->{name} );
+    $add->( "Mode:    '%s' (.%s)",      $header->{mode},  mode_string( oct $header->{mode} ) );
+    $add->( "UID:     '%s' (%d)",       $header->{uid},   oct $header->{uid} );
+    $add->( "GID:     '%s' (%d)",       $header->{gid},   oct $header->{gid} );
+    $add->( "Size:    '%s' (%d bytes)", $header->{size},  parse_size( $header->{size} ) );
+    $add->( "Time:    '%s' (%s)",       $header->{mtime}, format_time( oct $header->{mtime} ) );
+    $add->( "Chksum:  '%s'",            $header->{checksum} );
+    $add->( "Type:    '%s' (%s)", $header->{type}, stringify_tar_type( $header->{type} || '0' ) );
+    $add->( "Link:    '%s' (%d/100)", $header->{linkpath}, length $header->{linkpath} );
+    $add->( "Ustar:   '%s'",          $header->{ustar} );
+    $add->( "Verion:  '%s'",          $header->{ustar_version} );
+    $add->( "User:    '%s' (%d/32)",  $header->{user},     length $header->{user} );
+    $add->( "Group:   '%s' (%d/32)",  $header->{group},    length $header->{group} );
+    $add->( "Dev Maj: '%s'",          $header->{device_major} );
+    $add->( "Dev Min: '%s'",          $header->{device_minor} );
+    $add->( "Prefix:  '%s' (%d/155)", $header->{prefix},   length $header->{prefix} );
+
+    if (%$extended) {
+        $add->("Extended Attributes:");
+        $add->( "   %s: '%s'", $_, $extended->{$_} ) foreach ( sort keys %$extended );
+    }
+    if ( parse_size( $header->{size} ) ) {
         if ( $opts->{show_content} ) {
             $add->("Content: ↓ (shown below)");
         }
