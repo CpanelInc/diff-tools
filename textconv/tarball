@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use bytes;
 
 use DateTime     ();
 use Fcntl        ();
