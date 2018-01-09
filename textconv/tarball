@@ -21,7 +21,7 @@ sub _main {
         'process-extended!' => \$processExtended,
     );
 
-    my ($filename) = @_;
+    my ($filename) = @args;
 
     my $in;
     if ( $filename eq '-' ) {
