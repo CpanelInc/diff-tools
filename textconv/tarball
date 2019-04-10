@@ -69,6 +69,12 @@ sub _process_tarball {
             }
             $bytesRemaining = $header{size};
 
+            if ( length $header{checksum} ) {
+                my $calculated = calculate_checksum($buffer);
+                printf STDERR "warn: Stored checksum (%s) does not match computed value (%s) at %d\n", $header{checksum}, $calculated, $pos
+                  if !checksums_match( $header{checksum}, $calculated );
+            }
+
             $in_header = $header{type} if $opts{process_extended};
             next if $in_header eq "x" || $in_header eq "L" || $in_header eq "K";
 
@@ -152,6 +158,35 @@ sub lex_tar_header_raw {
         device_minor  => substr( $header, 337, 8 ) =~ s/\0+$//r,
         name_prefix   => substr( $header, 345, 155 ) =~ s/\0+$//r,
     );
+}
+
+sub calculate_checksum {
+    my ($header) = @_;
+
+    die "Incorrect header length" if 512 != length $header;
+
+    # Set checksum field to ASCII Space for calculation
+    substr( $header, 148, 8, ' ' x 8 );
+
+    my $checksum = 0;
+    for ( 0 .. 511 ) {
+        $checksum += ord( substr( $header, $_, 1 ) );
+        $checksum &= 0x1FFFF;    # force 17-bit unsigned addition (because 2**17 == 256 * 512)
+    }
+
+    return sprintf "%06o", $checksum;
+}
+
+sub checksums_match {
+    my ( $chksum1, $chksum2 ) = @_;
+
+    # Use the first 6 octal digits in the field (for compatibility).
+    $chksum1 =~ m/^([0-7]{6})/ || die "Cannot find checksum in value: $chksum1";
+    my $v1 = $1;
+    $chksum2 =~ m/^([0-7]{6})/ || die "Cannot find checksum in value: $chksum2";
+    my $v2 = $1;
+
+    return $v1 eq $v2;
 }
 
 sub lex_tar_header {
