@@ -235,6 +235,9 @@ sub stringify_tar_type {
     return "Global Extended"   if $tar_type eq "g";
     return "Extended"          if $tar_type eq "x";
 
+    return "Long file name [GNU extension]" if $tar_type eq "L";
+    return "Long link name [GNU extension]" if $tar_type eq "K";
+
     return;
 }
 
@@ -283,7 +286,7 @@ sub make_raw_header {
     $add->( "Size:    '%s' (%d bytes)", $header->{size},  parse_size( $header->{size} ) );
     $add->( "Time:    '%s' (%s)",       $header->{mtime}, format_time( oct $header->{mtime} ) );
     $add->( "Chksum:  '%s'",            $header->{checksum} );
-    $add->( "Type:    '%s' (%s)", $header->{type}, stringify_tar_type( $header->{type} || '0' ) );
+    $add->( "Type:    '%s' (%s)", $header->{type}, stringify_tar_type( $header->{type} || '0' ) // '??' );
     $add->( "Link:    '%s' (%d/100)", $header->{linkpath}, length $header->{linkpath} );
     $add->( "Ustar:   '%s'",          $header->{ustar} );
     $add->( "Verion:  '%s'",          $header->{ustar_version} );
