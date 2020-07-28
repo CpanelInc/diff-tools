@@ -33,6 +33,7 @@ use strict;
 use warnings;
 
 use Archive::Tar         ();
+use Getopt::Long         ();
 use Git::Raw::Note       ();
 use Git::Raw::Repository ();
 
@@ -46,6 +47,21 @@ sub _main {
         cache     => 1,
         cache_ref => 'refs/notes/ext-diff/tarball',
     );
+    Getopt::Long::Parser->new(
+        config => [ 'posix_default', 'gnu_compat' ],
+    )->getoptionsfromarray(
+        \@args,
+        'help|?' => \my $print_help,
+
+        'overview!'   => \$conf{overview},
+        'cache!'      => \$conf{cache},
+        'cache-ref=s' => sub { $conf{cache} = 1; $conf{cache_ref} = "$_[1]" },
+    );
+
+    if ($print_help) {
+        print_help();
+        return 0;
+    }
 
     # Performs exec system call, preventing it from returning.
     _execute_diff_for_git( \%conf, @args );
@@ -234,4 +250,31 @@ sub get_git_diff_options {
     close $fh or warn "Cannot close “$file”: $!";
 
     return grep { m/^(?:$recognized)$/ } @args;
+}
+
+sub print_help {
+    print <<HELP;
+Setup: git config diff.<driver>.command '$0 [OPTIONS] --'
+Compare the archived files within tarballs as part of git-diff.
+Do NOT call this tool directly; it is designed to be used by Git.
+
+Options:
+    --help, -?      Print this message and exit
+
+    --no-overview   Omit entry showing "Tarballs a/ and b/ differ".
+    --cache         Use cache for faster lookup of tarball contents.
+    --no-cache      Disable cache use (default).
+    --cache-ref=<ref>
+                    Specify the git-notes ref used to cache the git tree content
+                    for a blob.  Implies --cache.  When not given, --cache uses
+                    "refs/notes/ext-diff/tarball".
+
+Once configured, this tool can be called as part of normal Git commands.
+Usage: git diff [diff-options]
+       git show --ext-diff [show-options]
+       git log -p --ext-diff [log-options]
+       git <command> -p --ext-diff [command-options]
+
+See also: "Generating diff text" in `man 5 gitattributes`.
+HELP
 }

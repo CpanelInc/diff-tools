@@ -51,7 +51,7 @@ Instead of using Git's diff algorithm, pass the before and after files, along wi
 To make a git-ext-diff driver, set the `diff.<driver>.command` configuration value, where `<driver>` is the driver in the gitattributes file:
 
 ```sh
-git config diff.tarball.command /path/to/git-ext-diff/tarball
+git config diff.tarball.command '/path/to/git-ext-diff/tarball --'
 git config --global diff.patchfile.command /path/to/git-ext-diff/interdiff-patch
 ```
 
@@ -92,6 +92,7 @@ This allows the user to vary up the output format, without changing configs; for
 
 The following tools support options:
 * textconv/tarball
+* git-ext-diff/tarball
 
 ## License
 
