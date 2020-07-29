@@ -61,7 +61,7 @@ sub _main {
             $no_color = $last_color_option =~ m/--no-color|--color=never/;
         }
         else {
-            $no_color = system qw(git config --get-colorbool color.diff);
+            $no_color = system qw(git config --get-colorbool color.diff);    # Will check for TTY
         }
         my $header_color = $no_color ? '' : qx{git config --get-color color.diff.meta bold};
 
