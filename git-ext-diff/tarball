@@ -203,10 +203,23 @@ sub get_arguments_from_proc {
 # output before the diff; to propagate `--raw`, we would have a nested entry
 # where raw output suddenly reappears and could cause integration problems.
 # The same is true with the `--*stat` family of options.
-use constant DIFF_OPTS => qr/
+use constant { NO_VALUE => 0, OPTIONAL_VALUE => 1, REQUIRE_VALUE => 2 };
+use constant DIFF_SHORT_OPTS => {
+    U => &REQUIRE_VALUE,
+    B => &OPTIONAL_VALUE,
+    M => &OPTIONAL_VALUE,
+    C => &OPTIONAL_VALUE,
+    D => &NO_VALUE,
+    l => &REQUIRE_VALUE,
+    R => &NO_VALUE,
+    a => &NO_VALUE,
+    b => &NO_VALUE,
+    w => &NO_VALUE,
+    W => &NO_VALUE,
+};
+use constant DIFF_LONG_OPTS => qr/
     ^(?:
-      -U.+
-    | --unified=.+
+      --unified=.+
 
     | --minimal
     | --patience
@@ -227,30 +240,19 @@ use constant DIFF_OPTS => qr/
     | --abbrev(?:=.+)?
 
     | --no-renames
-    | -B.*
     | --break-rewrites(?:=.+)?
-    | -M.*
     | --find-renames(?:=.+)?
-    | -C.*
     | --find-copies(?:=.+)?
     | --find-copies-harder
-    | -D
     | --irreversible-delete
-    | -l.+
 
-    | -R
-
-    | -a
     | --text
     | --ignore-space-at-eol
-    | -b
     | --ignore-space-change
-    | -w
     | --ignore-all-space
     | --ignore-blank-lines
 
     | --inter-hunk-context=.+
-    | -W
     | --function-context
 
     | --textconv
@@ -262,12 +264,42 @@ use constant DIFF_OPTS => qr/
     )$
 /xs;
 
+sub collect_allowed_options {
+    my ( $short_opts, $long_opts, $args ) = @_;
+
+    my @options;
+    while (@$args) {
+        my $arg = shift @$args;
+        next if substr( $arg, 0, 1 ) ne '-';
+        if ( $arg =~ $long_opts ) {
+            push @options, $arg;
+        }
+        elsif ( substr( $arg, 1, 1 ) ne '-' ) {
+            my $chars = substr $arg, 1;
+            while ( length $chars ) {
+                my $char = substr $chars, 0, 1;
+                if ( $short_opts->{$char} ) {    # If it can have a value
+                    push @options, "-$chars";
+                    push @options, shift(@$args) if length($chars) == 1 && $short_opts->{$char} == &REQUIRE_VALUE;
+                    last;                        # Since a value can follow, this must be the last option
+                }
+                elsif ( defined $short_opts->{$char} ) {
+                    push @options, "-$char";
+                }
+                $chars = substr $chars, 1;
+            }
+        }
+    }
+
+    return @options;
+}
+
 # Query the command line of the parent process so we can extract its list of
 # diff options.  In doing so, our embedded diff will better match the output
 # formatting of its parent, for a more native look.
 sub get_git_diff_options {
     my @args = get_arguments_from_proc(getppid);
-    return grep { $_ =~ &DIFF_OPTS } @args;
+    return collect_allowed_options( &DIFF_SHORT_OPTS, &DIFF_LONG_OPTS, \@args );
 }
 
 sub print_help {
