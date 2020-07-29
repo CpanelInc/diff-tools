@@ -217,52 +217,50 @@ use constant DIFF_SHORT_OPTS => {
     w => &NO_VALUE,
     W => &NO_VALUE,
 };
-use constant DIFF_LONG_OPTS => qr/
-    ^(?:
-      --unified=.+
+use constant DIFF_LONG_OPTS => {
+    '--unified' => &OPTIONAL_VALUE,
 
-    | --minimal
-    | --patience
-    | --histogram
-    | --diff-algorithm=.*
+    '--minimal'        => &NO_VALUE,
+    '--patience'       => &NO_VALUE,
+    '--histogram'      => &NO_VALUE,
+    '--diff-algorithm' => &REQUIRE_VALUE,
 
-    | --color(?:=.+)?
-    | --no-color
-    | --word-diff(?:=.+)?
-    | --word-diff-regex=.+
-    | --color-words(?:=.+)?
+    '--color'           => &OPTIONAL_VALUE,
+    '--no-color'        => &NO_VALUE,
+    '--word-diff'       => &OPTIONAL_VALUE,
+    '--word-diff-regex' => &REQUIRE_VALUE,
+    '--color-words'     => &OPTIONAL_VALUE,
 
-    | --check
-    | --ws-error-highlight=.+
+    '--check'              => &NO_VALUE,
+    '--ws-error-highlight' => &REQUIRE_VALUE,
 
-    | --full-index
-    | --binary
-    | --abbrev(?:=.+)?
+    '--full-index' => &NO_VALUE,
+    '--binary'     => &NO_VALUE,
+    '--abbrev'     => &OPTIONAL_VALUE,
 
-    | --no-renames
-    | --break-rewrites(?:=.+)?
-    | --find-renames(?:=.+)?
-    | --find-copies(?:=.+)?
-    | --find-copies-harder
-    | --irreversible-delete
+    '--no-renames'          => &NO_VALUE,
+    '--break-rewrites'      => &OPTIONAL_VALUE,
+    '--find-renames'        => &OPTIONAL_VALUE,
+    '--find-copies'         => &OPTIONAL_VALUE,
+    '--find-copies-harder'  => &NO_VALUE,
+    '--irreversible-delete' => &NO_VALUE,
 
-    | --text
-    | --ignore-space-at-eol
-    | --ignore-space-change
-    | --ignore-all-space
-    | --ignore-blank-lines
+    '--text'                => &NO_VALUE,
+    '--ignore-space-at-eol' => &NO_VALUE,
+    '--ignore-space-change' => &NO_VALUE,
+    '--ignore-all-space'    => &NO_VALUE,
+    '--ignore-blank-lines'  => &NO_VALUE,
 
-    | --inter-hunk-context=.+
-    | --function-context
+    '--inter-hunk-context' => &REQUIRE_VALUE,
+    '--function-context'   => &NO_VALUE,
 
-    | --textconv
-    | --no-textconv
+    '--textconv'    => &NO_VALUE,
+    '--no-textconv' => &NO_VALUE,
 
-    | --src-prefix=.*
-    | --dst-prefix=.*
-    | --no-prefix
-    )$
-/xs;
+    '--src-prefix' => &REQUIRE_VALUE,
+    '--dst-prefix' => &REQUIRE_VALUE,
+    '--no-prefix'  => &NO_VALUE,
+};
 
 sub collect_allowed_options {
     my ( $short_opts, $long_opts, $args ) = @_;
@@ -271,10 +269,7 @@ sub collect_allowed_options {
     while (@$args) {
         my $arg = shift @$args;
         next if substr( $arg, 0, 1 ) ne '-';
-        if ( $arg =~ $long_opts ) {
-            push @options, $arg;
-        }
-        elsif ( substr( $arg, 1, 1 ) ne '-' ) {
+        if ( substr( $arg, 1, 1 ) ne '-' ) {
             my $chars = substr $arg, 1;
             while ( length $chars ) {
                 my $char = substr $chars, 0, 1;
@@ -287,6 +282,14 @@ sub collect_allowed_options {
                     push @options, "-$char";
                 }
                 $chars = substr $chars, 1;
+            }
+        }
+        else {
+            my $index = index $arg, '=';
+            my $key = $index == -1 ? $arg : substr( $arg, 0, $index );
+            if ( defined $long_opts->{$key} ) {
+                push @options, $arg;
+                push @options, shift(@$args) if $long_opts->{$key} == &REQUIRE_VALUE && $index == -1;
             }
         }
     }
