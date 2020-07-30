@@ -33,10 +33,12 @@ use v5.14;    # For s///r
 use strict;
 use warnings;
 
-use Archive::Tar         ();
-use Getopt::Long         ();
-use Git::Raw::Note       ();
-use Git::Raw::Repository ();
+use Archive::Tar            ();
+use File::Spec              ();
+use Getopt::Long            ();
+use Git::Raw::Note          ();
+use Git::Raw::Repository    ();
+use Git::Raw::Tree::Builder ();
 
 exit _main(@ARGV) unless caller;
 
@@ -81,8 +83,8 @@ sub _execute_diff_for_git {
 
     my $repo = Git::Raw::Repository->discover('.');
 
-    my $old_tree = _extract_files( $conf, $repo, $old_hex, $old_file, $old_git_path );
-    my $new_tree = _extract_files( $conf, $repo, $new_hex, $new_file, $new_git_path );
+    my $old_tree = build_full_tree( $repo, $old_git_path, _extract_files_to_tree( $conf, $repo, $old_hex, $old_file ) );
+    my $new_tree = build_full_tree( $repo, $new_git_path, _extract_files_to_tree( $conf, $repo, $new_hex, $new_file ) );
 
     my @options = get_git_diff_options($conf);
     my %parsed  = parse_git_diff_options(@options);
@@ -128,19 +130,33 @@ sub print_header {
     return;
 }
 
-sub _extract_files {
-    my ( $conf, $repo, $id, $tar_file, $git_path ) = @_;
+sub build_full_tree {
+    my ( $repo, $path, $tree ) = @_;
+
+    foreach my $dir ( reverse File::Spec::Unix->splitdir($path) ) {
+        my $builder = Git::Raw::Tree::Builder->new($repo);
+        $builder->insert( $dir, $tree, 040000 );
+        $tree = $builder->write();
+    }
+
+    return $tree;
+}
+
+sub _extract_files_to_tree {
+    my ( $conf, $repo, $id, $tar_file ) = @_;
     my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
+    my $format    = '=file';
 
     my ( $message, $indexed );
     if ( $id ne '0' x 40 && $id ne '.' && $cache_ref ) {
         my $note = Git::Raw::Note->read( $repo, $id, $cache_ref );
         $message = $note ? $note->message() : '';
-        foreach my $line ( split m/\0/, $message ) {
-            my ( $tree, $path ) = split m/ /, $line, 2;
-            if ( $path eq $git_path ) {
-                return $tree if defined $repo->lookup($tree);
-                $indexed = $tree;
+        foreach my $line ( split m/\012/, $message ) {
+            my ( $sha1, $form ) = split m/ /, $line, 2;
+            if ( $form eq $format ) {
+                my $tree = $repo->lookup($sha1);
+                return $tree if defined $tree;
+                $indexed = $sha1;
                 last;
             }
         }
@@ -154,7 +170,7 @@ sub _extract_files {
     # Add files to index
     my $iter = Archive::Tar->iter($tar_file);
     while ( my $f = $iter->() ) {
-        _handle_file( $index, $f, $git_path );
+        _handle_file( $index, $f );
     }
 
     # Create root tree
@@ -171,11 +187,10 @@ sub _extract_files {
         die "Cached tree does not match tarball.\nClear all cached trees with 'git update-ref -d $cache_ref'\n";
     }
 
-    # Store tree information into note for caching.  We must include the path
-    # because the tree will differ based on the path of the tarball and the
-    # tarball can be moved or renamed.
+    # Add tree information to note for caching if not already stored.  Do not
+    # store uncommitted tarballs, as their contents are subject to change.
     if ( defined $message && !$indexed ) {
-        $message .= "$tree $git_path\0";
+        $message .= "$tree $format\012";
         Git::Raw::Note->create( $repo, $id, $message, $cache_ref, 1 );
     }
 
@@ -183,9 +198,9 @@ sub _extract_files {
 }
 
 sub _handle_file {
-    my ( $index, $file, $git_path ) = @_;
+    my ( $index, $file ) = @_;
 
-    my $full_path = $git_path . '/' . $file->full_path;
+    my $full_path = $file->full_path;
     if ( $file->type eq '0' ) {
         my $mode = $file->mode & 0100 ? 0100755 : 0100644;
         $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
