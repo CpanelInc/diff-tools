@@ -47,7 +47,7 @@ sub _main {
 
     my %conf = (
         overview               => 1,
-        cache_ref              => 'refs/notes/ext-diff/tarball',
+        cache_ref              => 'refs/notes/cache/tarball',
         propagate_diff_options => 1,
     );
     Getopt::Long::Parser->new(
@@ -470,7 +470,7 @@ Options:
     --cache-ref=<ref>
                     Specify the git-notes ref used to cache the git tree content
                     for a blob.  Implies --cache.  When not given, --cache uses
-                    "refs/notes/ext-diff/tarball".
+                    "refs/notes/cache/tarball".
     --indent[=<prefix>]
                     When displaying the diff of tarball contents, prefix each
                     line with <prefix>.  The overview is not indented.  If not
