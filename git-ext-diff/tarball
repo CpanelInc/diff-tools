@@ -119,7 +119,7 @@ sub _extract_files {
     my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
 
     my $message;
-    if ( $id ne '.' && $cache_ref ) {
+    if ( $id ne '0' x 40 && $id ne '.' && $cache_ref ) {
         my $note = Git::Raw::Note->read( $repo, $id, $cache_ref );
         $message = $note ? $note->message() : '';
         foreach my $line ( split m/\0/, $message ) {
