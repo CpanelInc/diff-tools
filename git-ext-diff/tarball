@@ -203,14 +203,24 @@ sub get_arguments_from_proc {
 # output before the diff; to propagate `--raw`, we would have a nested entry
 # where raw output suddenly reappears and could cause integration problems.
 # The same is true with the `--*stat` family of options.
+#
+# See https://git-scm.com/docs/diff-options for list of available options.
 use constant { NO_VALUE => 0, OPTIONAL_VALUE => 1, REQUIRE_VALUE => 2 };
 use constant DIFF_SHORT_OPTS => {
+    p => &NO_VALUE,         # Implied
+    u => &NO_VALUE,         # Implied
+    s => undef,             # This tool would not run if this option is given [NO_VALUE]
     U => &REQUIRE_VALUE,
+    X => undef,             # See --stat [OPTIONAL_VALUE]
+    z => undef,             # Useless, given the arguments we accept [NO_VALUE]
     B => &OPTIONAL_VALUE,
     M => &OPTIONAL_VALUE,
     C => &OPTIONAL_VALUE,
     D => &NO_VALUE,
     l => &REQUIRE_VALUE,
+    S => undef,             # Parent must select us for search [REQUIRE_VALUE]
+    G => undef,             # Parent must select us for search [REQUIRE_VALUE]
+    O => &REQUIRE_VALUE,
     R => &NO_VALUE,
     a => &NO_VALUE,
     b => &NO_VALUE,
@@ -218,18 +228,57 @@ use constant DIFF_SHORT_OPTS => {
     W => &NO_VALUE,
 };
 use constant DIFF_LONG_OPTS => {
-    '--unified' => &OPTIONAL_VALUE,
+    '--patch'    => &NO_VALUE,         # Implied
+    '--no-patch' => undef,             # This tool would not be run if this option is given [NO_VALUE]
+    '--unified'  => &OPTIONAL_VALUE,
+    '--output'   => undef,             # This will lead to processes overwriting each other; ignore for now [REQUIRE_VALUE]
+
+    '--raw'            => undef,       # This tool would not be run if this option is given without -p [NO_VALUE]
+    '--patch-with-raw' => undef,       # This would inject raw output into the middle of a patch [NO_VALUE]
+
+    '--output-indicator-new'     => &REQUIRE_VALUE,
+    '--output-indicator-old'     => &REQUIRE_VALUE,
+    '--output-indicator-context' => &REQUIRE_VALUE,
+
+    '--indent-heuristic'    => &NO_VALUE,
+    '--no-indent-heuristic' => &NO_VALUE,
 
     '--minimal'        => &NO_VALUE,
     '--patience'       => &NO_VALUE,
     '--histogram'      => &NO_VALUE,
+    '--anchored'       => &REQUIRE_VALUE,
     '--diff-algorithm' => &REQUIRE_VALUE,
+
+    # These would inject stat output into the middle of a patch
+    '--stat'            => undef,    # OPTIONAL_VALUE
+    '--stat-width'      => undef,    # REQUIRE_VALUE
+    '--stat-name-width' => undef,    # REQUIRE_VALUE
+    '--stat-count'      => undef,    # REQUIRE_VALUE
+    '--compact-summary' => undef,    # NO_VALUE
+    '--numstat'         => undef,    # NO_VALUE
+    '--shortstat'       => undef,    # NO_VALUE
+    '--dirstat'         => undef,    # OPTIONAL_VALUE
+    '--cumulative'      => undef,    # NO_VALUE
+    '--dirstat-by-file' => undef,    # OPTIONAL_VALUE
+    '--summary'         => undef,    # NO_VALUE
+    '--patch-with-stat' => undef,    # NO_VALUE
+
+    '--name-only'   => undef,        # This tool would not run if this option is given [NO_VALUE]
+    '--name-status' => undef,        # This tool would not run if this option is given [NO_VALUE]
+    '--submodule'   => undef,        # Tarballs cannot contain submodules [OPTIONAL_VALUE]
 
     '--color'           => &OPTIONAL_VALUE,
     '--no-color'        => &NO_VALUE,
+    '--color-moved'     => &OPTIONAL_VALUE,
+    '--no-color-moved'  => &NO_VALUE,
+    '--color-moved-ws'  => &REQUIRE_VALUE,
     '--word-diff'       => &OPTIONAL_VALUE,
     '--word-diff-regex' => &REQUIRE_VALUE,
     '--color-words'     => &OPTIONAL_VALUE,
+
+    '--no-renames'      => &NO_VALUE,
+    '--rename-empty'    => &NO_VALUE,
+    '--no-rename-empty' => &NO_VALUE,
 
     '--check'              => &NO_VALUE,
     '--ws-error-highlight' => &REQUIRE_VALUE,
@@ -238,14 +287,22 @@ use constant DIFF_LONG_OPTS => {
     '--binary'     => &NO_VALUE,
     '--abbrev'     => &OPTIONAL_VALUE,
 
-    '--no-renames'          => &NO_VALUE,
     '--break-rewrites'      => &OPTIONAL_VALUE,
     '--find-renames'        => &OPTIONAL_VALUE,
     '--find-copies'         => &OPTIONAL_VALUE,
     '--find-copies-harder'  => &NO_VALUE,
     '--irreversible-delete' => &NO_VALUE,
 
+    '--diff-filter'   => undef,    # If the source tarball doesn't match the filter, then nothing is shown, even if it would match [REQUIRE_VALUE]
+    '--find-object'   => undef,    # Git will not search via an external diff [REQUIRE_VALUE]
+    '--pickaxe-all'   => undef,    # Git will not search via an external diff [NO_VALUE]
+    '--pickaxe-regex' => undef,    # Git will not search via an external diff [NO_VALUE]
+
+    '--relative'    => undef,      # Handled by parent diff [OPTIONAL_VALUE]
+    '--no-relative' => &NO_VALUE,
+
     '--text'                => &NO_VALUE,
+    '--ignore-cr-at-eol'    => &NO_VALUE,
     '--ignore-space-at-eol' => &NO_VALUE,
     '--ignore-space-change' => &NO_VALUE,
     '--ignore-all-space'    => &NO_VALUE,
@@ -254,12 +311,25 @@ use constant DIFF_LONG_OPTS => {
     '--inter-hunk-context' => &REQUIRE_VALUE,
     '--function-context'   => &NO_VALUE,
 
+    # Handled by parent diff.  If we did accept this, we would (almost) always
+    # exit non-zero, which the parent diff would interpret as an error, causing
+    # it to abort.
+    '--exit-code' => undef,    # NO_VALUE
+    '--quiet'     => undef,    # NO_VALUE
+
+    '--ext-diff'    => &NO_VALUE,    # Implied on git-diff.  Since we use git-diff, nested ext-diff will occur.
+    '--no-ext-diff' => undef,        # This tool would not run if this option is given [NO_VALUE]
     '--textconv'    => &NO_VALUE,
     '--no-textconv' => &NO_VALUE,
 
-    '--src-prefix' => &REQUIRE_VALUE,
-    '--dst-prefix' => &REQUIRE_VALUE,
-    '--no-prefix'  => &NO_VALUE,
+    '--ignore-submodules' => undef,    # Tarballs cannot contain submodules [OPTIONAL_VALUE]
+
+    '--src-prefix'  => &REQUIRE_VALUE,
+    '--dst-prefix'  => &REQUIRE_VALUE,
+    '--no-prefix'   => &NO_VALUE,
+    '--line-prefix' => undef,            # Breaks overview display, irrespective of propogation behavior [REQUIRE_VALUE]
+
+    '--ita-invisible-in-index' => undef, # "git add -N" cannot occur [NO_VALUE]
 };
 
 sub collect_allowed_options {
