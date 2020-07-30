@@ -205,6 +205,10 @@ sub _handle_file {
         my $mode = $file->mode & 0100 ? 0100755 : 0100644;
         $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
     }
+    elsif ( $file->type eq '1' ) {
+        my $entry = $index->find( $file->linkname ) // die "Cannot find entry: $file->linkname";
+        $index->add( $entry->clone($full_path) );
+    }
     elsif ( $file->type eq '2' ) {
         $index->add_frombuffer( $full_path, $file->linkname, 0120000 );
     }
