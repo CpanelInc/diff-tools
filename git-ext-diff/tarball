@@ -132,7 +132,7 @@ sub _extract_files {
     my ( $conf, $repo, $id, $tar_file, $git_path ) = @_;
     my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
 
-    my $message;
+    my ( $message, $indexed );
     if ( $id ne '0' x 40 && $id ne '.' && $cache_ref ) {
         my $note = Git::Raw::Note->read( $repo, $id, $cache_ref );
         $message = $note ? $note->message() : '';
@@ -140,14 +140,7 @@ sub _extract_files {
             my ( $tree, $path ) = split m/ /, $line, 2;
             if ( $path eq $git_path ) {
                 return $tree if defined $repo->lookup($tree);
-
-                # Remove the cached entry so it can be replaced with the newly
-                # calculated tree.  Since we already need to re-build the tree,
-                # there is little cost to update the entry.  And this allows
-                # the algorithm to change, since the cache won't be permanent.
-                # However, to force a refresh, the dangling tree needs to be
-                # pruned with git-gc.
-                $message =~ s/(?<=\0)\Q$tree\E [^\0]\0//;
+                $indexed = $tree;
                 last;
             }
         }
@@ -167,10 +160,21 @@ sub _extract_files {
     # Create root tree
     my $tree = $index->write_tree();
 
+    # Sanity check to make sure nothing changed.  If an issue is encountered,
+    # it likely means the other cached indices have mismatches as well, so all
+    # must be addressed.  Die with an error and force the user to take care of
+    # it.  We intentionally do not delete the ref for the user, as that could
+    # cause two different runs of this tool to produce different results (e.g.
+    # during a git-log, the first commit could use stale data while a later one
+    # got the cache refreshed).
+    if ( $indexed && $tree ne $indexed ) {
+        die "Cached tree does not match tarball.\nClear all cached trees with 'git update-ref -d $cache_ref'\n";
+    }
+
     # Store tree information into note for caching.  We must include the path
     # because the tree will differ based on the path of the tarball and the
     # tarball can be moved or renamed.
-    if ( defined $message ) {
+    if ( defined $message && !$indexed ) {
         $message .= "$tree $git_path\0";
         Git::Raw::Note->create( $repo, $id, $message, $cache_ref, 1 );
     }
