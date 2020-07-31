@@ -29,6 +29,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use v5.14;    # For s///r
 use strict;
 use warnings;
 
@@ -100,9 +101,10 @@ sub _execute_diff_for_git {
         }
         my $header_color = $no_color ? '' : qx{git config --get-color color.diff.meta bold};
 
-        print_header( "diff --git $src_prefix$old_git_path $dst_prefix$new_git_path", $header_color );
-        print_header( $git_annotations, $header_color ) if $git_annotations;
-        print "Tarballs $src_prefix$old_git_path and $dst_prefix$new_git_path differ\n";
+        my $prefix = $parsed{line_prefix} // '';
+        print_header( "diff --git $src_prefix$old_git_path $dst_prefix$new_git_path", $header_color, $prefix );
+        print_header( $git_annotations =~ s/^\Q$prefix\E//mgr,                        $header_color, $prefix ) if $git_annotations;
+        print "${prefix}Tarballs $src_prefix$old_git_path and $dst_prefix$new_git_path differ\n";
     }
 
     amend_git_diff_options( $conf, \@options );
@@ -111,10 +113,11 @@ sub _execute_diff_for_git {
 }
 
 sub print_header {
-    my ( $data, $color ) = @_;
+    my ( $data, $color, $prefix ) = @_;
 
     foreach ( split m/\n/, $data ) {
-        print $color if $color;
+        print $prefix if length $prefix;
+        print $color  if $color;
         print $_;
         print "\e[m" if $color;
         print "\n";
@@ -334,9 +337,9 @@ use constant DIFF_LONG_OPTS => {
     '--src-prefix'  => &REQUIRE_VALUE,
     '--dst-prefix'  => &REQUIRE_VALUE,
     '--no-prefix'   => &NO_VALUE,
-    '--line-prefix' => undef,            # Breaks overview display, irrespective of propogation behavior [REQUIRE_VALUE]
+    '--line-prefix' => &REQUIRE_VALUE,
 
-    '--ita-invisible-in-index' => undef, # "git add -N" cannot occur [NO_VALUE]
+    '--ita-invisible-in-index' => undef,    # "git add -N" cannot occur [NO_VALUE]
 };
 
 sub collect_allowed_options {
@@ -420,7 +423,8 @@ sub parse_git_diff_options {
         config => [ 'posix_default', 'gnu_compat', 'permute', 'bundling', 'pass_through' ],
     )->getoptionsfromarray(
         [@_],
-        'R' => \$values{reverse},
+        'R'             => \$values{reverse},
+        'line-prefix=s' => \$values{line_prefix},
     );
 
     return %values;
