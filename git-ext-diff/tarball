@@ -179,7 +179,7 @@ sub _extract_files_to_tree {
     # Add files to index
     my $iter = Archive::Tar->iter($tar_file);
     while ( my $f = $iter->() ) {
-        _handle_file( $index, $f );
+        _add_file_to_index( $conf, $index, $f );
     }
 
     # Create root tree
@@ -206,8 +206,8 @@ sub _extract_files_to_tree {
     return $tree;
 }
 
-sub _handle_file {
-    my ( $index, $file ) = @_;
+sub _add_file_to_index {
+    my ( $conf, $index, $file ) = @_;
 
     my $full_path = $file->full_path;
     if ( $file->type eq '0' ) {
