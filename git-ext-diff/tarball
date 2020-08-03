@@ -48,6 +48,7 @@ sub _main {
     my %conf = (
         overview               => 1,
         cache_ref              => 'refs/notes/cache/tarball',
+        full_path              => 1,
         propagate_diff_options => 1,
     );
     Getopt::Long::Parser->new(
@@ -60,7 +61,8 @@ sub _main {
         'cache!'      => \$conf{cache},
         'cache-ref=s' => sub { $conf{cache} = 1; $conf{cache_ref} = "$_[1]" },
 
-        'indent:s' => \$conf{indent},
+        'indent:s'   => \$conf{indent},
+        'full-path!' => \$conf{full_path},
 
         'propagate-diff-options!' => \$conf{propagate_diff_options},
         'exclude-diff-option=s@'  => \$conf{exclude_diff_option},
@@ -83,8 +85,15 @@ sub _execute_diff_for_git {
 
     my $repo = Git::Raw::Repository->discover('.');
 
-    my $old_tree = build_full_tree( $repo, $old_git_path, _extract_files_to_tree( $conf, $repo, $old_hex, $old_file ) );
-    my $new_tree = build_full_tree( $repo, $new_git_path, _extract_files_to_tree( $conf, $repo, $new_hex, $new_file ) );
+    my $old_tree = _extract_files_to_tree( $conf, $repo, $old_hex, $old_file );
+    my $new_tree = _extract_files_to_tree( $conf, $repo, $new_hex, $new_file );
+    if ( $conf->{full_path} ) {
+        $old_tree = build_full_tree( $repo, $old_git_path, $old_tree );
+        $new_tree = build_full_tree( $repo, $new_git_path, $new_tree );
+    }
+    else {
+        $conf->{indent} //= '';
+    }
 
     my @options = get_git_diff_options($conf);
     my %parsed  = parse_git_diff_options(@options);
@@ -468,6 +477,7 @@ Do NOT call this tool directly; it is designed to be used by Git.
 Options:
     --help, -?      Print this message and exit
 
+    --no-full-path  Do not prepend tarball path to filenames; implies --indent.
     --no-overview   Omit entry showing "Tarballs a/ and b/ differ".
     --cache         Use cache for faster lookup of tarball contents.
     --no-cache      Disable cache use (default).
