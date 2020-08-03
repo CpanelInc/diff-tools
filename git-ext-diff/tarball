@@ -50,7 +50,7 @@ sub _main {
     my $old_tree = _extract_files( $repo, $old_hex, $old_file, $old_git_path );
     my $new_tree = _extract_files( $repo, $new_hex, $new_file, $new_git_path );
 
-    my @options = get_options();
+    my @options = get_git_diff_options();
     if ($SHOW_TAR) {
         my $src_prefix = ( map { m/^--src-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "a/";
         my $dst_prefix = ( map { m/^--dst-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "b/";
@@ -155,7 +155,10 @@ sub _handle_file {
     return;
 }
 
-sub get_options {
+# Query the command line of the parent process so we can extract its list of
+# diff options.  In doing so, our embedded diff will better match the output
+# formatting of its parent, for a more native look.
+sub get_git_diff_options {
     my $recognized = qr/
           -U.+
         | --unified=.+
