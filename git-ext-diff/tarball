@@ -44,7 +44,6 @@ sub _main {
 
     my %conf = (
         overview  => 1,
-        cache     => 1,
         cache_ref => 'refs/notes/ext-diff/tarball',
     );
     Getopt::Long::Parser->new(
