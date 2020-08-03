@@ -36,22 +36,32 @@ use Archive::Tar         ();
 use Git::Raw::Note       ();
 use Git::Raw::Repository ();
 
-my $NOTE_REF = 'refs/notes/ext-diff/tarball';    # Set to undef to disable caching
-my $SHOW_TAR = 1;
-
 exit _main(@ARGV) unless caller;
 
 sub _main {
-    my ( $old_git_path, $old_file, $old_hex, $old_mode, $new_file, $new_hex, $new_mode, $new_git_path, $git_annotations ) = @_;
+    my @args = @_;
+
+    my %conf = (
+        overview  => 1,
+        cache     => 1,
+        cache_ref => 'refs/notes/ext-diff/tarball',
+    );
+
+    # Performs exec system call, preventing it from returning.
+    _execute_diff_for_git( \%conf, @args );
+}
+
+sub _execute_diff_for_git {
+    my ( $conf, $old_git_path, $old_file, $old_hex, $old_mode, $new_file, $new_hex, $new_mode, $new_git_path, $git_annotations ) = @_;
     $new_git_path //= $old_git_path;
 
     my $repo = Git::Raw::Repository->discover('.');
 
-    my $old_tree = _extract_files( $repo, $old_hex, $old_file, $old_git_path );
-    my $new_tree = _extract_files( $repo, $new_hex, $new_file, $new_git_path );
+    my $old_tree = _extract_files( $conf, $repo, $old_hex, $old_file, $old_git_path );
+    my $new_tree = _extract_files( $conf, $repo, $new_hex, $new_file, $new_git_path );
 
     my @options = get_git_diff_options();
-    if ($SHOW_TAR) {
+    if ( $conf->{overview} ) {
         my $src_prefix = ( map { m/^--src-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "a/";
         my $dst_prefix = ( map { m/^--dst-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "b/";
 
@@ -89,11 +99,12 @@ sub print_header {
 }
 
 sub _extract_files {
-    my ( $repo, $id, $tar_file, $git_path ) = @_;
+    my ( $conf, $repo, $id, $tar_file, $git_path ) = @_;
+    my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
 
     my $message;
-    if ( $id ne '.' && $NOTE_REF ) {
-        my $note = Git::Raw::Note->read( $repo, $id, $NOTE_REF );
+    if ( $id ne '.' && $cache_ref ) {
+        my $note = Git::Raw::Note->read( $repo, $id, $cache_ref );
         $message = $note ? $note->message() : '';
         foreach my $line ( split m/\0/, $message ) {
             my ( $tree, $path ) = split m/ /, $line, 2;
@@ -131,7 +142,7 @@ sub _extract_files {
     # tarball can be moved or renamed.
     if ( defined $message ) {
         $message .= "$tree $git_path\0";
-        Git::Raw::Note->create( $repo, $id, $message, $NOTE_REF, 1 );
+        Git::Raw::Note->create( $repo, $id, $message, $cache_ref, 1 );
     }
 
     return $tree;
