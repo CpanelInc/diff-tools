@@ -43,8 +43,9 @@ sub _main {
     my @args = @_;
 
     my %conf = (
-        overview  => 1,
-        cache_ref => 'refs/notes/ext-diff/tarball',
+        overview               => 1,
+        cache_ref              => 'refs/notes/ext-diff/tarball',
+        propagate_diff_options => 1,
     );
     Getopt::Long::Parser->new(
         config => [ 'posix_default', 'gnu_compat' ],
@@ -55,6 +56,8 @@ sub _main {
         'overview!'   => \$conf{overview},
         'cache!'      => \$conf{cache},
         'cache-ref=s' => sub { $conf{cache} = 1; $conf{cache_ref} = "$_[1]" },
+
+        'propagate-diff-options!' => \$conf{propagate_diff_options},
     );
 
     if ($print_help) {
@@ -75,7 +78,7 @@ sub _execute_diff_for_git {
     my $old_tree = _extract_files( $conf, $repo, $old_hex, $old_file, $old_git_path );
     my $new_tree = _extract_files( $conf, $repo, $new_hex, $new_file, $new_git_path );
 
-    my @options = get_git_diff_options();
+    my @options = get_git_diff_options($conf);
     my $reverse = ( grep { $_ eq '-R' } @options ) ? 1 : 0;
     ( $old_tree, $new_tree ) = ( $new_tree, $old_tree ) if $reverse;
 
@@ -371,6 +374,9 @@ sub collect_allowed_options {
 # diff options.  In doing so, our embedded diff will better match the output
 # formatting of its parent, for a more native look.
 sub get_git_diff_options {
+    my ($conf) = @_;
+    return if !$conf->{propagate_diff_options};
+
     my @args = get_arguments_from_proc(getppid);
     return collect_allowed_options( &DIFF_SHORT_OPTS, &DIFF_LONG_OPTS, \@args );
 }
@@ -391,6 +397,9 @@ Options:
                     Specify the git-notes ref used to cache the git tree content
                     for a blob.  Implies --cache.  When not given, --cache uses
                     "refs/notes/ext-diff/tarball".
+
+    --no-propagate-diff-options
+                    Disable propagation of diff options from parent process.
 
 Diff Option Propagation
     To seamlessly integrate with Git's diff output, this tool reads the diff
