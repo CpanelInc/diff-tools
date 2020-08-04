@@ -58,6 +58,7 @@ sub _main {
         'cache-ref=s' => sub { $conf{cache} = 1; $conf{cache_ref} = "$_[1]" },
 
         'propagate-diff-options!' => \$conf{propagate_diff_options},
+        'exclude-diff-option=s@'  => \$conf{exclude_diff_option},
     );
 
     if ($print_help) {
@@ -377,8 +378,23 @@ sub get_git_diff_options {
     my ($conf) = @_;
     return if !$conf->{propagate_diff_options};
 
+    my $diff_short_opts = &DIFF_SHORT_OPTS;
+    my $diff_long_opts  = &DIFF_LONG_OPTS;
+    if ( $conf->{exclude_diff_option} ) {
+        foreach my $exclude ( @{ $conf->{exclude_diff_option} } ) {
+            die "Value to --exclude-diff-option= must begin with a dash: $exclude\n" if substr( $exclude, 0, 1 ) ne '-';
+            if ( substr( $exclude, 1, 1 ) ne '-' ) {
+                my @chars = split m//, substr( $exclude, 1 );
+                delete $diff_short_opts->{$_} foreach (@chars);
+            }
+            else {
+                delete $diff_long_opts->{$exclude};
+            }
+        }
+    }
+
     my @args = get_arguments_from_proc(getppid);
-    return collect_allowed_options( &DIFF_SHORT_OPTS, &DIFF_LONG_OPTS, \@args );
+    return collect_allowed_options( $diff_short_opts, $diff_long_opts, \@args );
 }
 
 sub print_help {
@@ -400,6 +416,11 @@ Options:
 
     --no-propagate-diff-options
                     Disable propagation of diff options from parent process.
+    --exclude-diff-option=<option>
+                    Prevent the given option from being propagated to this
+                    tool's diff creator.  This can disable unwanted processing,
+                    e.g. --exclude-diff-option=--check.  Can be given multiple
+                    times.
 
 Diff Option Propagation
     To seamlessly integrate with Git's diff output, this tool reads the diff
