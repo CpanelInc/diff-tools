@@ -85,6 +85,7 @@ sub _main {
         'append-diff-option=s@'   => \$conf{append_diff_option},
 
         'show-content!' => \my $show_content,
+        'show-header:s' => \my $show_header,
     );
 
     if ($print_help) {
@@ -92,7 +93,12 @@ sub _main {
         return 0;
     }
 
-    if ( !defined $show_content || $show_content ) {
+    if ( defined $show_header ) {
+        $conf{header_format} = $show_header || 'attr-simple';
+        $conf{header_file}   = '.header';
+        $conf{content_file}  = '-' if !defined $show_content || $show_content;
+    }
+    elsif ( !defined $show_content || $show_content ) {
         $conf{content_file} = '';
     }
 
@@ -210,10 +216,12 @@ sub identify_cache_format {
     # When the file name is a blob, the value `=<format>` is used.
     my @format;
     push @format, "munge=$conf->{munge_components}" if $conf->{munge_components};
+    push @format, sprintf 'header=%s,%s', $conf->{header_format}, $conf->{header_file} =~ s/\012//gr if length $conf->{header_file};
     if ( length $conf->{content_file} ) {
         push @format, sprintf 'file=%s', $conf->{content_file} =~ s/\012//gr;
     }
     elsif ( defined $conf->{content_file} ) {
+        die "content_file must not be the empty string" if length $conf->{header_file};
         push @format, '=file';
     }
 
@@ -301,6 +309,54 @@ sub _extract_files_to_tree {
     return $tree;
 }
 
+# Once published, these functions should not change to ensure cache indices do
+# not become invalid.  They should remain "constant".
+use constant HEADER_FORMAT => {
+    'raw'         => sub { return $_[0]->raw },
+    'attr-simple' => sub {
+        my ($file) = @_;
+        my $header = '';
+        $header .= sprintf "Mode:     %04o\n",  $file->mode;
+        $header .= sprintf "User:     %d/%s\n", $file->uid, $file->uname;
+        $header .= sprintf "Group:    %d/%s\n", $file->gid, $file->gname;
+        $header .= sprintf "Modified: %s\n",    scalar localtime( $file->mtime );
+
+        # Types '0' and '2' can be inferred from the file mode in Git.  If type
+        # is '1', then we show the Hardlink field, so we don't need to show the
+        # Type field.  Symlinks already show linkname in the content file ('-'),
+        # making the field unnecessary.
+        $header .= sprintf "Type:     %s\n", $file->type if $file->type ne '0' && $file->type ne '1' && $file->type ne '2';
+        $header .= sprintf "Hardlink: %s\n", $file->linkname if $file->type eq '1';
+
+        # This will probably never happen, but account for it in an attempt to future-proof this format.
+        $header .= sprintf "Device:   %d, %d\n", $file->devmajor, $file->devminor if $file->devmajor || $file->devminor;
+        return $header;
+    },
+    'attr-all' => sub {
+        my ($file) = @_;
+        my $header = '';
+        $header .= sprintf "Name:         %s\n",   $file->name;
+        $header .= sprintf "Mode:         %04o\n", $file->mode;
+        $header .= sprintf "UID:          %d\n",   $file->uid;
+        $header .= sprintf "GID:          %d\n",   $file->gid;
+        $header .= sprintf "Size:         %d\n",   $file->size;
+        $header .= sprintf "Mtime:        %s\n",   $file->mtime;
+        $header .= sprintf "Checksum:     %s\n",   $file->chksum;
+        $header .= sprintf "Type:         %s\n",   $file->type;
+        $header .= sprintf "Linkname:     %s\n",   $file->linkname;
+        $header .= sprintf "Magic:        %s\n",   $file->magic;
+        $header .= sprintf "Version:      %s\n",   $file->version;
+        $header .= sprintf "Device Major: %d\n",   $file->devmajor;
+        $header .= sprintf "Device Minor: %d\n",   $file->devminor;
+        $header .= sprintf "User Name:    %s\n",   $file->uname;
+        $header .= sprintf "Group Name:   %s\n",   $file->gname;
+        $header .= sprintf "Prefix:       %s\n",   $file->prefix;
+        return $header;
+    },
+
+    # TODO: attr-format:<format-string>, xattr-*?
+};
+
 # Copy an individual file from the archive into the (disposable) index
 # according to the format specified in the configuration.
 sub _add_file_to_index {
@@ -315,6 +371,19 @@ sub _add_file_to_index {
 
         $dirs[$_] = '*' for ( 0 .. $munge_count - 1 );
         $full_path = File::Spec::Unix->catfile(@dirs);
+    }
+
+    if ( length $conf->{header_file} ) {
+        my $header;
+        if ( 'CODE' eq ref &HEADER_FORMAT->{ $conf->{header_format} } ) {
+            $header = &HEADER_FORMAT->{ $conf->{header_format} }->($file);
+        }
+        else {
+            die "Invalid header format: $conf->{header_format}\n";
+        }
+
+        my $name = File::Spec::Unix->catfile( $full_path, $conf->{header_file} );
+        $index->add_frombuffer( $name, \$header, 0100644 );
     }
 
     if ( defined $conf->{content_file} ) {
@@ -668,6 +737,16 @@ Options:
 
     --no-show-content
                     Do not show file content in diff.
+    --show-header[=<format>]
+                    Show tar header for file.  This turns the filename into a
+                    tree, which has a '.header' blob that shows the attributes
+                    in the header.  If --no-show-content is not given, the file
+                    content is shown in a '-' blob in this tree.  Formats:
+                    - raw:          Verbatim (binary) representation of header.
+                    - attr-all:     Show all header fields as key/value pairs.
+                    - attr-simple:  Show fields that cannot be guessed from the
+                                    content file and tar(1) defaults -- uncommon
+                                    values will cause field to appear. (default)
 
 Diff Option Propagation
     To seamlessly integrate with Git's diff output, this tool reads the diff
