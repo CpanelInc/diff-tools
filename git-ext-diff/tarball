@@ -184,67 +184,76 @@ sub _handle_file {
     return;
 }
 
+# The git-diff options we will propagate.
+#
+# Some options may be difficult to implement in a well integrated way, and so
+# they are excluded (for now).  For example, `-p --raw`, displays all the raw
+# output before the diff; to propagate `--raw`, we would have a nested entry
+# where raw output suddenly reappears and could cause integration problems.
+# The same is true with the `--*stat` family of options.
+use constant DIFF_OPTS => qr/
+    ^(?:
+      -U.+
+    | --unified=.+
+
+    | --minimal
+    | --patience
+    | --histogram
+    | --diff-algorithm=.*
+
+    | --color(?:=.+)?
+    | --no-color
+    | --word-diff(?:=.+)?
+    | --word-diff-regex=.+
+    | --color-words(?:=.+)?
+
+    | --check
+    | --ws-error-highlight=.+
+
+    | --full-index
+    | --binary
+    | --abbrev(?:=.+)?
+
+    | --no-renames
+    | -B.*
+    | --break-rewrites(?:=.+)?
+    | -M.*
+    | --find-renames(?:=.+)?
+    | -C.*
+    | --find-copies(?:=.+)?
+    | --find-copies-harder
+    | -D
+    | --irreversible-delete
+    | -l.+
+
+    | -R
+
+    | -a
+    | --text
+    | --ignore-space-at-eol
+    | -b
+    | --ignore-space-change
+    | -w
+    | --ignore-all-space
+    | --ignore-blank-lines
+
+    | --inter-hunk-context=.+
+    | -W
+    | --function-context
+
+    | --textconv
+    | --no-textconv
+
+    | --src-prefix=.*
+    | --dst-prefix=.*
+    | --no-prefix
+    )$
+/xs;
+
 # Query the command line of the parent process so we can extract its list of
 # diff options.  In doing so, our embedded diff will better match the output
 # formatting of its parent, for a more native look.
 sub get_git_diff_options {
-    my $recognized = qr/
-          -U.+
-        | --unified=.+
-
-        | --minimal
-        | --patience
-        | --histogram
-        | --diff-algorithm=.*
-
-        | --color(?:=.+)?
-        | --no-color
-        | --word-diff(?:=.+)?
-        | --word-diff-regex=.+
-        | --color-words(?:=.+)?
-
-        | --check
-        | --ws-error-highlight=.+
-
-        | --full-index
-        | --binary
-        | --abbrev(?:=.+)?
-
-        | --no-renames
-        | -B.*
-        | --break-rewrites(?:=.+)?
-        | -M.*
-        | --find-renames(?:=.+)?
-        | -C.*
-        | --find-copies(?:=.+)?
-        | --find-copies-harder
-        | -D
-        | --irreversible-delete
-        | -l.+
-
-        | -R
-
-        | -a
-        | --text
-        | --ignore-space-at-eol
-        | -b
-        | --ignore-space-change
-        | -w
-        | --ignore-all-space
-        | --ignore-blank-lines
-
-        | --inter-hunk-context=.+
-        | -W
-        | --function-context
-
-        | --textconv
-        | --no-textconv
-
-        | --src-prefix=.*
-        | --dst-prefix=.*
-        | --no-prefix
-    /xs;
-
     my $PPID = getppid();
     my $file = "/proc/$PPID/cmdline";
 
@@ -253,7 +262,7 @@ sub get_git_diff_options {
     my @args = split m/\0/, <$fh>;
     close $fh or warn "Cannot close “$file”: $!";
 
-    return grep { m/^(?:$recognized)$/ } @args;
+    return grep { $_ =~ &DIFF_OPTS } @args;
 }
 
 sub print_help {
