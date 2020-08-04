@@ -59,6 +59,8 @@ sub _main {
 
         'propagate-diff-options!' => \$conf{propagate_diff_options},
         'exclude-diff-option=s@'  => \$conf{exclude_diff_option},
+        'prepend-diff-option=s@'  => \$conf{prepend_diff_option},
+        'append-diff-option=s@'   => \$conf{append_diff_option},
     );
 
     if ($print_help) {
@@ -103,6 +105,7 @@ sub _execute_diff_for_git {
         print "Tarballs $src_prefix$old_git_path and $dst_prefix$new_git_path differ\n";
     }
 
+    amend_git_diff_options( $conf, \@options );
     exec 'git', 'diff', $old_tree, $new_tree, @options;
     die "Cannot exec: $!";
 }
@@ -397,6 +400,19 @@ sub get_git_diff_options {
     return collect_allowed_options( $diff_short_opts, $diff_long_opts, \@args );
 }
 
+sub amend_git_diff_options {
+    my ( $conf, $opts ) = @_;
+
+    if ( $conf->{prepend_diff_option} ) {
+        unshift @$opts, @{ $conf->{prepend_diff_option} };
+    }
+    if ( $conf->{append_diff_option} ) {
+        push @$opts, @{ $conf->{append_diff_option} };
+    }
+
+    return;
+}
+
 sub print_help {
     print <<HELP;
 Setup: git config diff.<driver>.command '$0 [OPTIONS] --'
@@ -421,6 +437,13 @@ Options:
                     tool's diff creator.  This can disable unwanted processing,
                     e.g. --exclude-diff-option=--check.  Can be given multiple
                     times.
+    --prepend-diff-option=<option>
+                    Specify an option to put before the propagated ones; useful
+                    for setting default behavior that can be overturned.  Can
+                    be given multiple times.
+    --append-diff-option=<option>
+                    Specify an option to put after the propagated ones. Can be
+                    given multiple times.
 
 Diff Option Propagation
     To seamlessly integrate with Git's diff output, this tool reads the diff
