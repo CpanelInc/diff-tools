@@ -61,8 +61,9 @@ sub _main {
         'cache!'      => \$conf{cache},
         'cache-ref=s' => sub { $conf{cache} = 1; $conf{cache_ref} = "$_[1]" },
 
-        'indent:s'   => \$conf{indent},
-        'full-path!' => \$conf{full_path},
+        'indent:s'           => \$conf{indent},
+        'full-path!'         => \$conf{full_path},
+        'munge-components=i' => \$conf{munge_components},
 
         'propagate-diff-options!' => \$conf{propagate_diff_options},
         'exclude-diff-option=s@'  => \$conf{exclude_diff_option},
@@ -156,6 +157,7 @@ sub identify_cache_format {
     #
     # When the file name is a blob, the value `=<format>` is used.
     my @format;
+    push @format, "munge=$conf->{munge_components}" if $conf->{munge_components};
     push @format, '=file';
 
     return join ' ', @format;
@@ -232,6 +234,16 @@ sub _add_file_to_index {
     my ( $conf, $index, $file ) = @_;
 
     my $full_path = $file->full_path;
+    if ( $conf->{munge_components} ) {
+        my @dirs = File::Spec::Unix->splitdir($full_path);
+
+        # Take the smaller the path component length (less one) and the given argument.
+        my $munge_count = $conf->{munge_components} < (@dirs - 1) ? $conf->{munge_components} : (@dirs - 1);
+
+        $dirs[$_] = '*' for ( 0 .. $munge_count - 1 );
+        $full_path = File::Spec::Unix->catfile(@dirs);
+    }
+
     if ( $file->type eq '0' ) {
         my $mode = $file->mode & 0100 ? 0100755 : 0100644;
         $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
@@ -532,6 +544,9 @@ Options:
                     line with <prefix>.  The overview is not indented.  If not
                     given, TAB is used for <prefix>.  Enables propagation on
                     --raw & --stat, et. al.
+    --munge-components=<n>
+                    Replace the first <n> path components of the tarballs with
+                    "*".  This hides renames of the top-level directories.
     --no-propagate-diff-options
                     Disable propagation of diff options from parent process.
     --exclude-diff-option=<option>
