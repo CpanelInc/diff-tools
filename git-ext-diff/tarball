@@ -184,6 +184,18 @@ sub _handle_file {
     return;
 }
 
+sub get_arguments_from_proc {
+    my ($pid) = @_;
+    my $file = "/proc/$pid/cmdline";
+
+    local $/;
+    open my $fh, '<', $file or die "Cannot open “$file”: $!";
+    my @args = split m/\0/, <$fh>;
+    close $fh or warn "Cannot close “$file”: $!";
+
+    return @args;
+}
+
 # The git-diff options we will propagate.
 #
 # Some options may be difficult to implement in a well integrated way, and so
@@ -254,14 +266,7 @@ use constant DIFF_OPTS => qr/
 # diff options.  In doing so, our embedded diff will better match the output
 # formatting of its parent, for a more native look.
 sub get_git_diff_options {
-    my $PPID = getppid();
-    my $file = "/proc/$PPID/cmdline";
-
-    local $/;
-    open my $fh, '<', $file or die "Cannot open “$file”: $!";
-    my @args = split m/\0/, <$fh>;
-    close $fh or warn "Cannot close “$file”: $!";
-
+    my @args = get_arguments_from_proc(getppid);
     return grep { $_ =~ &DIFF_OPTS } @args;
 }
 
