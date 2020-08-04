@@ -242,12 +242,6 @@ sub get_arguments_from_proc {
 
 # The git-diff options we will propagate.
 #
-# Some options may be difficult to implement in a well integrated way, and so
-# they are excluded (for now).  For example, `-p --raw`, displays all the raw
-# output before the diff; to propagate `--raw`, we would have a nested entry
-# where raw output suddenly reappears and could cause integration problems.
-# The same is true with the `--*stat` family of options.
-#
 # See https://git-scm.com/docs/diff-options for list of available options.
 use constant { NO_VALUE => 0, OPTIONAL_VALUE => 1, REQUIRE_VALUE => 2 };
 use constant DIFF_SHORT_OPTS => {
@@ -255,8 +249,8 @@ use constant DIFF_SHORT_OPTS => {
     u => &NO_VALUE,         # Implied
     s => undef,             # This tool would not run if this option is given [NO_VALUE]
     U => &REQUIRE_VALUE,
-    X => undef,             # See --stat [OPTIONAL_VALUE]
-    z => undef,             # Useless, given the arguments we accept [NO_VALUE]
+    X => &OPTIONAL_VALUE,
+    z => &NO_VALUE,
     B => &OPTIONAL_VALUE,
     M => &OPTIONAL_VALUE,
     C => &OPTIONAL_VALUE,
@@ -277,8 +271,10 @@ use constant DIFF_LONG_OPTS => {
     '--unified'  => &OPTIONAL_VALUE,
     '--output'   => undef,             # This will lead to processes overwriting each other; ignore for now [REQUIRE_VALUE]
 
-    '--raw'            => undef,       # This tool would not be run if this option is given without -p [NO_VALUE]
-    '--patch-with-raw' => undef,       # This would inject raw output into the middle of a patch [NO_VALUE]
+    # These inject raw output into the middle of a patch, so they are only
+    # allowed when --indent is given.
+    '--raw'            => &NO_VALUE,
+    '--patch-with-raw' => &NO_VALUE,
 
     '--output-indicator-new'     => &REQUIRE_VALUE,
     '--output-indicator-old'     => &REQUIRE_VALUE,
@@ -293,23 +289,24 @@ use constant DIFF_LONG_OPTS => {
     '--anchored'       => &REQUIRE_VALUE,
     '--diff-algorithm' => &REQUIRE_VALUE,
 
-    # These would inject stat output into the middle of a patch
-    '--stat'            => undef,    # OPTIONAL_VALUE
-    '--stat-width'      => undef,    # REQUIRE_VALUE
-    '--stat-name-width' => undef,    # REQUIRE_VALUE
-    '--stat-count'      => undef,    # REQUIRE_VALUE
-    '--compact-summary' => undef,    # NO_VALUE
-    '--numstat'         => undef,    # NO_VALUE
-    '--shortstat'       => undef,    # NO_VALUE
-    '--dirstat'         => undef,    # OPTIONAL_VALUE
-    '--cumulative'      => undef,    # NO_VALUE
-    '--dirstat-by-file' => undef,    # OPTIONAL_VALUE
-    '--summary'         => undef,    # NO_VALUE
-    '--patch-with-stat' => undef,    # NO_VALUE
+    # These inject stat output into the middle of a patch, so they are only
+    # allowed when --indent is given.
+    '--stat'            => &OPTIONAL_VALUE,
+    '--stat-width'      => &REQUIRE_VALUE,
+    '--stat-name-width' => &REQUIRE_VALUE,
+    '--stat-count'      => &REQUIRE_VALUE,
+    '--compact-summary' => &NO_VALUE,
+    '--numstat'         => &NO_VALUE,
+    '--shortstat'       => &NO_VALUE,
+    '--dirstat'         => &OPTIONAL_VALUE,
+    '--cumulative'      => &NO_VALUE,
+    '--dirstat-by-file' => &OPTIONAL_VALUE,
+    '--summary'         => &NO_VALUE,
+    '--patch-with-stat' => &NO_VALUE,
 
-    '--name-only'   => undef,        # This tool would not run if this option is given [NO_VALUE]
-    '--name-status' => undef,        # This tool would not run if this option is given [NO_VALUE]
-    '--submodule'   => undef,        # Tarballs cannot contain submodules [OPTIONAL_VALUE]
+    '--name-only'   => undef,    # This tool would not run if this option is given [NO_VALUE]
+    '--name-status' => undef,    # This tool would not run if this option is given [NO_VALUE]
+    '--submodule'   => undef,    # Tarballs cannot contain submodules [OPTIONAL_VALUE]
 
     '--color'           => &OPTIONAL_VALUE,
     '--no-color'        => &NO_VALUE,
@@ -433,6 +430,29 @@ sub get_git_diff_options {
         }
     }
 
+    # Without an indent to separate the display, injected stat and raw
+    # information would break the visual flow.
+    delete @$diff_long_opts{
+        qw(
+          --raw
+          --patch-with-raw
+
+          --stat
+          --stat-width
+          --stat-name-width
+          --stat-count
+          --compact-summary
+          --numstat
+          --shortstat
+          --dirstat
+          --cumulative
+          --dirstat-by-file
+          --summary
+          --patch-with-stat
+          )
+      }
+      if !defined $conf->{indent};
+
     my @args = get_arguments_from_proc(getppid);
     return collect_allowed_options( $diff_short_opts, $diff_long_opts, \@args );
 }
@@ -488,7 +508,8 @@ Options:
     --indent[=<prefix>]
                     When displaying the diff of tarball contents, prefix each
                     line with <prefix>.  The overview is not indented.  If not
-                    given, TAB is used for <prefix>.
+                    given, TAB is used for <prefix>.  Enables propagation on
+                    --raw & --stat, et. al.
     --no-propagate-diff-options
                     Disable propagation of diff options from parent process.
     --exclude-diff-option=<option>
