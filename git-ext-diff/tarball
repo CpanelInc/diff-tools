@@ -392,6 +392,12 @@ Options:
                     for a blob.  Implies --cache.  When not given, --cache uses
                     "refs/notes/ext-diff/tarball".
 
+Diff Option Propagation
+    To seamlessly integrate with Git's diff output, this tool reads the diff
+    options passed to the Git command (the one that transparently calls this
+    tool).  Supported options are re-used in the diff this tool creates.
+    See "git help diff" for a list of diff options; not all are propagated.
+
 Once configured, this tool can be called as part of normal Git commands.
 Usage: git diff [diff-options]
        git show --ext-diff [show-options]

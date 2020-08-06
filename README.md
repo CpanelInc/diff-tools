@@ -57,6 +57,12 @@ git config --global diff.patchfile.command /path/to/git-ext-diff/interdiff-patch
 
 When setup, `git diff` uses the external diff by default, while `git show` and `git log -p` do not.  This behavior can be changed with the `--no-ext-diff` or `--ext-diff` options.
 
+#### Diff Option Propagation
+
+The output of external diff programs _completely replace_ the normal diff output for a file, including the `diff --git a/ b/` header, and it appears in-line with the rest of the diff.  This can lead to a dissimilarity in how the diff is formatted between files.
+
+To minimize differences - for a nearly seamless integration - these tools attempt to re-create the output as Git might (at least, as close as possible).  Indeed, they will identify the [diff options](https://git-scm.com/docs/diff-options) used on the calling (i.e. parent) process and, when possible, modify their output to do something similar (e.g. many tools propagate `-b`).  Nevertheless, differences can still occur, especially when using diff options specific to Git.
+
 ### merge-tool
 
 The merge-tool directory contains scripts that make it possible to merge binary files, which are otherwise unmergeable in Git, requiring manual review and modification.  Often, this is accomplished by converting the binary contents to text with a 1-to-1 mapping, so the text can be merged and then re-converted to binary.
