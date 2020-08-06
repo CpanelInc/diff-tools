@@ -83,11 +83,17 @@ sub _main {
         'exclude-diff-option=s@'  => \$conf{exclude_diff_option},
         'prepend-diff-option=s@'  => \$conf{prepend_diff_option},
         'append-diff-option=s@'   => \$conf{append_diff_option},
+
+        'show-content!' => \my $show_content,
     );
 
     if ($print_help) {
         print_help();
         return 0;
+    }
+
+    if ( !defined $show_content || $show_content ) {
+        $conf{content_file} = '';
     }
 
     # Performs exec system call, preventing it from returning.
@@ -204,7 +210,12 @@ sub identify_cache_format {
     # When the file name is a blob, the value `=<format>` is used.
     my @format;
     push @format, "munge=$conf->{munge_components}" if $conf->{munge_components};
-    push @format, '=file';
+    if ( length $conf->{content_file} ) {
+        push @format, sprintf 'file=%s', $conf->{content_file} =~ s/\012//gr;
+    }
+    elsif ( defined $conf->{content_file} ) {
+        push @format, '=file';
+    }
 
     return join ' ', @format;
 }
@@ -306,19 +317,23 @@ sub _add_file_to_index {
         $full_path = File::Spec::Unix->catfile(@dirs);
     }
 
-    if ( $file->type eq '0' ) {    # Normal file
-        my $mode = $file->mode & 0100 ? 0100755 : 0100644;
-        $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
-    }
-    elsif ( $file->type eq '1' ) {    # Hardlinked file (to previous entry in tarball)
-        my $entry = $index->find( $file->linkname ) // die "Cannot find entry: $file->linkname";
-        $index->add( $entry->clone($full_path) );
-    }
-    elsif ( $file->type eq '2' ) {    # Symlink
-        $index->add_frombuffer( $full_path, $file->linkname, 0120000 );
-    }
-    elsif ( $file->type ne '5' ) {    # Not a directory (e.g. socket, pipe, device).
-        die "Unrecognized type: " . $file->type;
+    if ( defined $conf->{content_file} ) {
+        $full_path .= "/$conf->{content_file}" if length $conf->{content_file};
+
+        if ( $file->type eq '0' ) {    # Normal file
+            my $mode = $file->mode & 0100 ? 0100755 : 0100644;
+            $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
+        }
+        elsif ( $file->type eq '1' ) {    # Hardlinked file (to previous entry in tarball)
+            my $entry = $index->find( $file->linkname ) // die "Cannot find entry: $file->linkname";
+            $index->add( $entry->clone($full_path) );
+        }
+        elsif ( $file->type eq '2' ) {    # Symlink
+            $index->add_frombuffer( $full_path, $file->linkname, 0120000 );
+        }
+        elsif ( $file->type ne '5' ) {    # Not a directory (e.g. socket, pipe, device).
+            die "Unrecognized type: " . $file->type;
+        }
     }
 
     return;
@@ -650,6 +665,9 @@ Options:
     --append-diff-option=<option>
                     Specify an option to put after the propagated ones. Can be
                     given multiple times.
+
+    --no-show-content
+                    Do not show file content in diff.
 
 Diff Option Propagation
     To seamlessly integrate with Git's diff output, this tool reads the diff
