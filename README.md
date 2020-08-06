@@ -38,7 +38,7 @@ The textconv tools convert binary files into text output meant for human consump
 To make a textconv driver, set the `diff.<driver>.textconv` configuration value, where `<driver>` is the driver in the gitattributes file:
 
 ```sh
-git config diff.tarball.textconv /path/to/textconv/tarball
+git config diff.tarball.textconv '/path/to/textconv/tarball --'
 git config --global diff.patchfile.textconv /path/to/textconv/filter-patch
 ```
 
@@ -70,3 +70,25 @@ git config mergetool.sqlite3.cmd '/path/to/merge-tool/sqlite3 $BASE $REMOTE $LOC
 **Note:** Unlike the other tools, the argument list must be specified with merge-tools.
 
 To use this merge tool, run `git mergetool --tool=<tool> [<file>]`.  Notice the explit inclusion of the tool to use; this is required.
+
+### Tool Options
+
+Some of the tools in this repository are configurable via command line options.  This opens up a lot of flexibility, but can introduce nasty behavior in edge cases - specifically.
+
+**Important:** When using a tool that accepts options on the command line, be sure to end the git-config value with ` --` (see example below).  Without this, a file checked into the Git repository that starts with `-` could be misconstrued as an option, breaking the tool.
+
+#### Runtime Variation
+
+To allow configurability at runtime, you can exploit environmental variables when configuring the tool.  For textconv tools, be sure to disable caching, to avoid stale results when the environmental variable changes.
+
+```sh
+git config diff.tarball.textconv '/path/to/textconv/tarball $TARBALL_TEXTCONV_OPTS --'
+git config diff.tarball.cachetextconv false
+```
+
+This allows the user to vary up the output format, without changing configs; for example, `git show` and `TARBALL_TEXTCONV_OPTS='--raw-header --no-process-extended' git show`.
+
+#### Tools with Options
+
+The following tools support options:
+* textconv/tarball
