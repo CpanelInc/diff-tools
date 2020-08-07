@@ -82,13 +82,13 @@ sub _execute_diff_for_git {
     my $new_tree = _extract_files( $conf, $repo, $new_hex, $new_file, $new_git_path );
 
     my @options = get_git_diff_options($conf);
-    my $reverse = ( grep { $_ eq '-R' } @options ) ? 1 : 0;
-    ( $old_tree, $new_tree ) = ( $new_tree, $old_tree ) if $reverse;
+    my %parsed  = parse_git_diff_options(@options);
+    ( $old_tree, $new_tree ) = ( $new_tree, $old_tree ) if $parsed{reverse};
 
     if ( $conf->{overview} ) {
         my $src_prefix = ( map { m/^--src-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "a/";
         my $dst_prefix = ( map { m/^--dst-prefix=(.*)|^--no-prefix()/ ? ($1) : () } @options )[-1] // "b/";
-        ( $src_prefix, $dst_prefix ) = ( $dst_prefix, $src_prefix ) if $reverse;
+        ( $src_prefix, $dst_prefix ) = ( $dst_prefix, $src_prefix ) if $parsed{reverse};
 
         # Check the last color-related command line option or git-config.
         my $no_color;
@@ -411,6 +411,19 @@ sub amend_git_diff_options {
     }
 
     return;
+}
+
+# Some values we must actively parse, in addition to passing them through.
+sub parse_git_diff_options {
+    my %values;
+    Getopt::Long::Parser->new(
+        config => [ 'posix_default', 'gnu_compat', 'permute', 'bundling', 'pass_through' ],
+    )->getoptionsfromarray(
+        [@_],
+        'R' => \$values{reverse},
+    );
+
+    return %values;
 }
 
 sub print_help {
