@@ -33,7 +33,21 @@ use v5.14;    # For s///r
 use strict;
 use warnings;
 
-use Archive::Tar            ();
+BEGIN {
+    # Disable support for compressed tarballs, as they make it much less likely
+    # for Git to think similar tarballs are renames of one another, which
+    # prevents this tool from running in the first place.  The compression also
+    # makes it impossible to search for contents within the file using -S/-G.
+    #
+    # In general, storing compressed files in Git is a bad idea as it actually
+    # makes Git's compression much worse -- it often severely hampers delta
+    # compression, paradoxically making the repository much larger.  Thus, this
+    # limitation also encourages good repository design.
+    local $ENV{PERL5_AT_NO_ZLIB} = 1;
+    local $ENV{PERL5_AT_NO_BZIP} = 1;
+    local $ENV{PERL5_AT_NO_XZ}   = 1;
+    use Archive::Tar ();
+}
 use File::Spec              ();
 use Getopt::Long            ();
 use Git::Raw::Note          ();
@@ -290,8 +304,8 @@ use constant DIFF_SHORT_OPTS => {
     C => &OPTIONAL_VALUE,
     D => &NO_VALUE,
     l => &REQUIRE_VALUE,
-    S => undef,             # Parent must select us for search [REQUIRE_VALUE]
-    G => undef,             # Parent must select us for search [REQUIRE_VALUE]
+    S => &REQUIRE_VALUE,    # Parent must select us for search
+    G => &REQUIRE_VALUE,    # Parent must select us for search
     O => &REQUIRE_VALUE,
     R => &NO_VALUE,
     a => &NO_VALUE,
@@ -370,8 +384,8 @@ use constant DIFF_LONG_OPTS => {
 
     '--diff-filter'   => &REQUIRE_VALUE,    # Parent must select us for filter
     '--find-object'   => undef,             # Git will not search via an external diff [REQUIRE_VALUE]
-    '--pickaxe-all'   => undef,             # Git will not search via an external diff [NO_VALUE]
-    '--pickaxe-regex' => undef,             # Git will not search via an external diff [NO_VALUE]
+    '--pickaxe-all'   => &NO_VALUE,         # Parent must select us for search
+    '--pickaxe-regex' => &NO_VALUE,         # Parent must select us for search
 
     '--relative'    => undef,               # Handled by parent diff [OPTIONAL_VALUE]
     '--no-relative' => &NO_VALUE,
