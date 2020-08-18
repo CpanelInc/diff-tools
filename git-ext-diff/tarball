@@ -368,12 +368,12 @@ use constant DIFF_LONG_OPTS => {
     '--find-copies-harder'  => &NO_VALUE,
     '--irreversible-delete' => &NO_VALUE,
 
-    '--diff-filter'   => undef,    # If the source tarball doesn't match the filter, then nothing is shown, even if it would match [REQUIRE_VALUE]
-    '--find-object'   => undef,    # Git will not search via an external diff [REQUIRE_VALUE]
-    '--pickaxe-all'   => undef,    # Git will not search via an external diff [NO_VALUE]
-    '--pickaxe-regex' => undef,    # Git will not search via an external diff [NO_VALUE]
+    '--diff-filter'   => &REQUIRE_VALUE,    # Parent must select us for filter
+    '--find-object'   => undef,             # Git will not search via an external diff [REQUIRE_VALUE]
+    '--pickaxe-all'   => undef,             # Git will not search via an external diff [NO_VALUE]
+    '--pickaxe-regex' => undef,             # Git will not search via an external diff [NO_VALUE]
 
-    '--relative'    => undef,      # Handled by parent diff [OPTIONAL_VALUE]
+    '--relative'    => undef,               # Handled by parent diff [OPTIONAL_VALUE]
     '--no-relative' => &NO_VALUE,
 
     '--text'                => &NO_VALUE,
