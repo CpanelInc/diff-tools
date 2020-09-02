@@ -29,18 +29,44 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-BASE=$1
-REMOTE=$2
-LOCAL=$3
-MERGED=$4
+ORIG_BASE=$1
+ORIG_REMOTE=$2
+ORIG_LOCAL=$3
+ORIG_MERGED=$4
+GIT_MERGETOOL_GUI=${5:-false}
+TOOL_MODE=${6:-merge}
 
-trap "rm -f '$BASE.dump' '$REMOTE.dump' '$LOCAL.dump' '$MERGED.dump'" EXIT
+# The convert() and unconvert() functions can be changed, while everything else
+# remains the same, for other file formats.
+convert() {
+	sqlite3 "$1" .dump > "$2"
+}
+unconvert() {
+	rm -f -- "$2"
+	sqlite3 "$2" ".read '$1'"
+}
 
-sqlite3 "$BASE" .dump > "$BASE.dump"
-sqlite3 "$REMOTE" .dump > "$REMOTE.dump"
-sqlite3 "$LOCAL" .dump > "$LOCAL.dump"
+# Determine correct mergetool to run.
+. "$(git --exec-path)/git-mergetool--lib"
+printf "Using mergetool: %s\n" "${MERGETOOL:=$(get_merge_tool)}"
 
-kdiff3 --auto "$BASE.dump" "$REMOTE.dump" "$LOCAL.dump" -o "$MERGED.dump"
+# If set before get_merge_tool is run, errors occur.
+set -e
 
-rm -f "$MERGED"
-sqlite3 "$MERGED" ".read '$MERGED.dump'"
+# Ensure no temporary files are left behind.
+CLEANUP=()
+cleanup() { rm -f -- "${CLEANUP[@]}"; }
+trap 'cleanup' EXIT
+
+# Convert files to text.
+text_filename() { mktemp -p "$(dirname "$1")" "$(basename "$1").XXXXXX" --suffix=.text; }
+if [ -n "$ORIG_BASE" ];   then BASE=$(text_filename "$ORIG_BASE")    ; CLEANUP+=( "$BASE" )  ; convert "$ORIG_BASE"   "$BASE";   fi
+if [ -n "$ORIG_REMOTE" ]; then REMOTE=$(text_filename "$ORIG_REMOTE"); CLEANUP+=( "$REMOTE" ); convert "$ORIG_REMOTE" "$REMOTE"; fi
+if [ -n "$ORIG_LOCAL" ];  then LOCAL=$(text_filename "$ORIG_LOCAL")  ; CLEANUP+=( "$LOCAL" ) ; convert "$ORIG_LOCAL"  "$LOCAL";  fi
+if [ -n "$ORIG_MERGED" ]; then MERGED=$(text_filename "$ORIG_MERGED"); CLEANUP+=( "$MERGED" ); convert "$ORIG_MERGED" "$MERGED"; fi
+
+run_merge_tool "$MERGETOOL" "$( test -n "$BASE" && printf true || printf false )"
+
+# Reverse the conversion for the final result if $ORIG_MERGED is passed in.  If
+# not, this is likely diff mode and we can ignore the file.
+[ -z "$ORIG_MERGED" ] || unconvert "$MERGED" "$ORIG_MERGED"
