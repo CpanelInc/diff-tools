@@ -139,6 +139,28 @@ sub print_header {
     return;
 }
 
+# Creates a reproducible identifier for the format that does not contain \012.
+sub identify_cache_format {
+    my ($conf) = @_;
+
+    # Any arbitrary, non empty string can be used as the format identifer.  To
+    # make adding new components to the identifier easier, we define a
+    # `key=value` format, separated by spaces.  Both key and value may contain
+    # spaces and no escaping mechanism is defined since we don't need to parse
+    # the identifier - we are only comparing it to see if it is a verbatim
+    # match.
+    #
+    # For keys defining blob contents, the value is the name of the file in
+    # which those blobs are stored (under the tree defined by the actual
+    # filename in the tarball).
+    #
+    # When the file name is a blob, the value `=<format>` is used.
+    my @format;
+    push @format, '=file';
+
+    return join ' ', @format;
+}
+
 sub build_full_tree {
     my ( $repo, $path, $tree ) = @_;
 
@@ -154,7 +176,7 @@ sub build_full_tree {
 sub _extract_files_to_tree {
     my ( $conf, $repo, $id, $tar_file ) = @_;
     my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
-    my $format    = '=file';
+    my $format    = identify_cache_format($conf);
 
     my ( $message, $indexed );
     if ( $id ne '0' x 40 && $id ne '.' && $cache_ref ) {
