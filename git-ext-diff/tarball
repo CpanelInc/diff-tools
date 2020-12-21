@@ -428,6 +428,7 @@ sub collect_allowed_options {
     while (@$args) {
         my $arg = shift @$args;
         next if substr( $arg, 0, 1 ) ne '-';
+        last if $arg eq '--';
         if ( substr( $arg, 1, 1 ) ne '-' ) {
             my $chars = substr $arg, 1;
             while ( length $chars ) {
