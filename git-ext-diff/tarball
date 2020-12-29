@@ -94,22 +94,37 @@ sub _main {
     _execute_diff_for_git( \%conf, @args );
 }
 
+# Takes a configuration hash, followed by all of the arguments that Git passes
+# to the external diff tool.  Note that the annotations are not officially
+# documented and sometimes are not provided when one would expect to see them.
 sub _execute_diff_for_git {
     my ( $conf, $old_git_path, $old_file, $old_hex, $old_mode, $new_file, $new_hex, $new_mode, $new_git_path, $git_annotations ) = @_;
     $new_git_path //= $old_git_path;
 
     my $repo = Git::Raw::Repository->discover('.');
 
+    # Get a tree object that corresponds to the given tarball's contents
+    # (subject to formatting options in config).
     my $old_tree = _extract_files_to_tree( $conf, $repo, $old_hex, $old_file );
     my $new_tree = _extract_files_to_tree( $conf, $repo, $new_hex, $new_file );
     if ( $conf->{full_path} ) {
+
+        # Prepend the path of the tarball to the contents of the tree to create
+        # a new tree with the combined paths.  This allows the same blob to be
+        # used at multiple paths in the repository.
         $old_tree = build_full_tree( $repo, $old_git_path, $old_tree );
         $new_tree = build_full_tree( $repo, $new_git_path, $new_tree );
     }
     else {
+        # When a full path is not used, we force the indent option to true (if
+        # it was not already set).
         $conf->{indent} //= '';
     }
 
+    # Parse diff options from parent git binary.  In particular, we need to
+    # un-reverse the arguments when -R is passed because taking them as is
+    # would mean that the path prefixes (e.g. `a/` & `b/`) would be in the
+    # wrong order.
     my @options = get_git_diff_options($conf);
     my %parsed  = parse_git_diff_options(@options);
     ( $old_tree, $new_tree ) = ( $new_tree, $old_tree ) if $parsed{reverse};
@@ -129,6 +144,11 @@ sub _execute_diff_for_git {
         }
         my $header_color = $no_color ? '' : qx{git config --get-color color.diff.meta bold};
 
+        # If git annotations are provided, any line prefix will already be
+        # prepended to all of the lines.  We remove that line prefix and then
+        # re-prepend it to ensure the color formatting doesn't modify the color
+        # of the line prefix itself, as git-diff does not apply coloring to the
+        # line prefix, which can have graphable (i.e. isgraph()) characters.
         my $prefix = $parsed{line_prefix} // '';
         print_header( "diff --git $src_prefix$old_git_path $dst_prefix$new_git_path", $header_color, $prefix );
         print_header( $git_annotations =~ s/^\Q$prefix\E//mgr,                        $header_color, $prefix ) if $git_annotations;
@@ -140,13 +160,21 @@ sub _execute_diff_for_git {
     die "Cannot exec: $!";
 }
 
+# Prints custom header (or meta) lines with the proper formatting.
 sub print_header {
     my ( $data, $color, $prefix ) = @_;
 
+    # Handle each line separately so the formatting affects only the text and
+    # does not run to the end of the line (e.g. if the background color is set)
+    # and so the line prefix is applied to every line.
     foreach ( split m/\n/, $data ) {
         print $prefix if length $prefix;
         print $color  if $color;
         print $_;
+
+        # Clear the formatting, but only if formatting was applied.  Piping the
+        # ANSI codes to another program - even if it has no effect on the
+        # terminal - could break the receiving tool's parsing of the contents.
         print "\e[m" if $color;
         print "\n";
     }
@@ -158,7 +186,7 @@ sub print_header {
 sub identify_cache_format {
     my ($conf) = @_;
 
-    # Any arbitrary, non empty string can be used as the format identifer.  To
+    # Any arbitrary, non empty string can be used as the format identifier.  To
     # make adding new components to the identifier easier, we define a
     # `key=value` format, separated by spaces.  Both key and value may contain
     # spaces and no escaping mechanism is defined since we don't need to parse
@@ -177,6 +205,7 @@ sub identify_cache_format {
     return join ' ', @format;
 }
 
+# Prepend the given path to the existing tree to create a new tree.
 sub build_full_tree {
     my ( $repo, $path, $tree ) = @_;
 
@@ -189,11 +218,22 @@ sub build_full_tree {
     return $tree;
 }
 
+# Take a tar file (a blob) and return the tree that represents the extracted
+# contents of that blob according to the formatting options specified in the
+# configuration.  When extracting, the tree is stored in the repository that
+# houses the original blob; it will be reaped in a future garbage collection.
 sub _extract_files_to_tree {
     my ( $conf, $repo, $id, $tar_file ) = @_;
     my $cache_ref = $conf->{cache} ? $conf->{cache_ref} : undef;
     my $format    = identify_cache_format($conf);
 
+    # Check for a cached tree object in the repository and re-use it if it is
+    # valid.  This involves checking for a cache entry in the notes and, if one
+    # is found, verifying the tree object still exists (i.e. that it was not
+    # pruned during garbage collection).  Cached trees let this tool avoid
+    # re-extracting the archive contents, which can save a lot of time with
+    # large archives, and can help with repeated runs or when a blob appears
+    # multiple times, as it would be with "git log -p --ext-diff".
     my ( $message, $indexed );
     if ( $id ne '0' x 40 && $id ne '.' && $cache_ref ) {
         my $note = Git::Raw::Note->read( $repo, $id, $cache_ref );
@@ -214,13 +254,15 @@ sub _extract_files_to_tree {
     my $index = $repo->index();
     $index->clear();
 
-    # Add files to index
+    # Add files to index so the index looks like the tarball's contents
+    # (subject to formatting options specified in $conf).
     my $iter = Archive::Tar->iter($tar_file);
     while ( my $f = $iter->() ) {
         _add_file_to_index( $conf, $index, $f );
     }
 
-    # Create root tree
+    # Create root tree.  This writes objects to the repository's object store,
+    # but does not change the repository state (vis-à-vis git-status).
     my $tree = $index->write_tree();
 
     # Sanity check to make sure nothing changed.  If an issue is encountered,
@@ -244,6 +286,8 @@ sub _extract_files_to_tree {
     return $tree;
 }
 
+# Copy an individual file from the archive into the (disposable) index
+# according to the format specified in the configuration.
 sub _add_file_to_index {
     my ( $conf, $index, $file ) = @_;
 
@@ -258,24 +302,25 @@ sub _add_file_to_index {
         $full_path = File::Spec::Unix->catfile(@dirs);
     }
 
-    if ( $file->type eq '0' ) {
+    if ( $file->type eq '0' ) {    # Normal file
         my $mode = $file->mode & 0100 ? 0100755 : 0100644;
         $index->add_frombuffer( $full_path, $file->get_content_by_ref, $mode );
     }
-    elsif ( $file->type eq '1' ) {
+    elsif ( $file->type eq '1' ) {    # Hardlinked file (to previous entry in tarball)
         my $entry = $index->find( $file->linkname ) // die "Cannot find entry: $file->linkname";
         $index->add( $entry->clone($full_path) );
     }
-    elsif ( $file->type eq '2' ) {
+    elsif ( $file->type eq '2' ) {    # Symlink
         $index->add_frombuffer( $full_path, $file->linkname, 0120000 );
     }
-    elsif ( $file->type ne '5' ) {
+    elsif ( $file->type ne '5' ) {    # Not a directory (e.g. socket, pipe, device).
         die "Unrecognized type: " . $file->type;
     }
 
     return;
 }
 
+# Get list of command line arguments to process on a system with procfs.
 sub get_arguments_from_proc {
     my ($pid) = @_;
     my $file = "/proc/$pid/cmdline";
@@ -421,6 +466,16 @@ use constant DIFF_LONG_OPTS => {
     '--ita-invisible-in-index' => undef,    # "git add -N" cannot occur [NO_VALUE]
 };
 
+# Return all of the allowed short & long options found in the given arguments.
+#
+# For the allowed options, provide a hashref where the key is the option and
+# the value is a constant that represents whether there are no additional
+# values for the argument, an optional value, or if a value is required.  With
+# short options, the key is only the letter; for long options, it is the full
+# option with both dashes prefixed.
+#
+# For simplicity, bundled short options will be split into individual
+# arguments in the returned list.
 sub collect_allowed_options {
     my ( $short_opts, $long_opts, $args ) = @_;
 
@@ -429,8 +484,9 @@ sub collect_allowed_options {
         my $arg = shift @$args;
         next if substr( $arg, 0, 1 ) ne '-';
         last if $arg eq '--';
-        if ( substr( $arg, 1, 1 ) ne '-' ) {
-            my $chars = substr $arg, 1;
+
+        if ( substr( $arg, 1, 1 ) ne '-' ) {    # If arg is a short option (or short option bundle)
+            my $chars = substr $arg, 1;         # Strip leading dash
             while ( length $chars ) {
                 my $char = substr $chars, 0, 1;
                 if ( $short_opts->{$char} ) {    # If it can have a value
@@ -440,11 +496,13 @@ sub collect_allowed_options {
                 }
                 elsif ( defined $short_opts->{$char} ) {
                     push @options, "-$char";
-                }
+                }    # Note: the bundled form of `--` (e.g. `-a-`) does not seem to be supported by Git.
                 $chars = substr $chars, 1;
             }
         }
         else {
+            # Note: We assume _optional_ values must be specified with `=` in
+            # the same argument and cannot appear as a following argument.
             my $index = index $arg, '=';
             my $key = $index == -1 ? $arg : substr( $arg, 0, $index );
             if ( defined $long_opts->{$key} ) {
@@ -502,10 +560,13 @@ sub get_git_diff_options {
       }
       if !defined $conf->{indent};
 
+    # TODO: Support systems without procfs (e.g. Windows, macOS).
     my @args = get_arguments_from_proc(getppid);
     return collect_allowed_options( $diff_short_opts, $diff_long_opts, \@args );
 }
 
+# Inject additional options into git-diff command line based on configuration
+# options and values from current command line.
 sub amend_git_diff_options {
     my ( $conf, $opts, $values ) = @_;
 
@@ -517,19 +578,28 @@ sub amend_git_diff_options {
     }
 
     if ( defined $conf->{indent} ) {
+
+        # Prepend the line-prefix from our parent command, if given, to the
+        # indent prefix to make the resulting indentation fit in.
+        #
+        # If no indent value is provided (i.e. the flag is given without value
+        # or the value is set to the empty string), then default to TAB (to
+        # ensure indents cannot be nullified, which helps with --no-full-path).
         push @$opts, sprintf "--line-prefix=%s%s", $values->{line_prefix} // '', length $conf->{indent} ? $conf->{indent} : "\t";
     }
 
     return;
 }
 
-# Some values we must actively parse, in addition to passing them through.
+# Parse select options from the arguments, needed for correctly selecting the
+# values to pass to the child diff, without removing them from the argument
+# list (so the child diff still receives them).
 sub parse_git_diff_options {
     my %values;
     Getopt::Long::Parser->new(
         config => [ 'posix_default', 'gnu_compat', 'permute', 'bundling', 'pass_through' ],
     )->getoptionsfromarray(
-        [@_],
+        [@_],    # Do not modify the original arguments.
         'R'             => \$values{reverse},
         'line-prefix=s' => \$values{line_prefix},
     );
